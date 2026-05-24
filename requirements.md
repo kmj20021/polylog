@@ -232,13 +232,13 @@
 
 | ID | 분류 | 기술 | 비고 |
 |---|---|---|---|
-| TR-CLI1 | 플랫폼 | Android (Kotlin) | 최소 API 26 (Android 8.0) |
-| TR-CLI2 | UI 프레임워크 | Jetpack Compose | 선언형 UI |
-| TR-CLI3 | 카메라 | CameraX | 사진 캡처 |
-| TR-CLI4 | 위치 | FusedLocationProviderClient | GPS 좌표 |
-| TR-CLI5 | 네트워크 | Retrofit + OkHttp | REST API 통신 |
-| TR-CLI6 | 로컬 DB | Room | 오프라인 큐잉 |
-| TR-CLI7 | 인증 | AWS Amplify Android SDK | Cognito 연동 |
+| TR-CLI1 | 플랫폼 | Flutter (Dart) | Flutter 3.x, Dart 3.x |
+| TR-CLI2 | UI 프레임워크 | Flutter Widgets | Material Design 3 |
+| TR-CLI3 | 카메라 | camera / image_picker 패키지 | 사진 캡처 |
+| TR-CLI4 | 위치 | geolocator 패키지 | GPS 좌표 |
+| TR-CLI5 | 네트워크 | dio | REST API 통신 |
+| TR-CLI6 | 로컬 DB | sqflite | 오프라인 큐잉 |
+| TR-CLI7 | 인증 | AWS Amplify Flutter SDK | Cognito 연동 |
 
 ### 3.5 개발·운영 도구
 
@@ -294,7 +294,7 @@ User (1) ── (N) Trip
 
 | ID | 분류 | 제약 내용 |
 |---|---|---|
-| CON-1 | 플랫폼 | PoC 범위: Android 앱 우선 개발, iOS는 차후 검토 |
+| CON-1 | 플랫폼 | Flutter 크로스 플랫폼: Android + iOS 동시 지원 |
 | CON-2 | 목적 | 개인 학습 프로젝트 — 상용 출시 아닌 포트폴리오 목적 |
 | CON-3 | 리전 | AWS 서울 리전 우선, Bedrock·Location Service는 가용 리전(us-east-1) 사용 |
 | CON-4 | 비용 | 무료 티어 적극 활용, 월 $30 이하 유지 |
@@ -348,17 +348,17 @@ User (1) ── (N) Trip
 
 | ID | 기술 | 사용 목적 | 숙련도 | 위험 등급 | 관련 요구사항 |
 |---|---|---|---|---|---|
-| RISK-LIB1 | Jetpack Compose | 선언형 UI 구성 | 미경험 | 상 | TR-CLI2 |
-| RISK-LIB2 | CameraX | 카메라 캡처 및 프리뷰 | 미경험 | 중 | TR-CLI3, FR-1.1 |
-| RISK-LIB3 | AWS Amplify Android SDK | Cognito 인증 연동 | 미경험 | 중 | TR-CLI7, NFR-S3 |
-| RISK-LIB4 | Room (오프라인 큐 용도) | 로컬 큐잉 및 동기화 | 미경험 | 중 | TR-CLI6, NFR-A2 |
-| RISK-LIB5 | Retrofit + OkHttp | REST/WebSocket 통신 | 미경험 | 중 | TR-CLI5 |
+| RISK-LIB1 | Flutter Widgets | Flutter UI 구성 | 미경험 | 상 | TR-CLI2 |
+| RISK-LIB2 | camera 패키지 | 카메라 캡처 및 프리뷰 | 미경험 | 중 | TR-CLI3, FR-1.1 |
+| RISK-LIB3 | AWS Amplify Flutter SDK | Cognito 인증 연동 | 미경험 | 중 | TR-CLI7, NFR-S3 |
+| RISK-LIB4 | sqflite | 로컬 큐잉 및 동기화 | 미경험 | 중 | TR-CLI6, NFR-A2 |
+| RISK-LIB5 | dio | REST API 통신 | 미경험 | 중 | TR-CLI5 |
 | RISK-LIB6 | AWS SAM (IaC) | Lambda·API Gateway 배포 자동화 | 미경험 | 중 | TR-DEV1 |
 
 **대응 방안**
 - 각 라이브러리별 공식 Codelab / 튜토리얼을 10주차 착수 전에 1회 이상 완주
-- Jetpack Compose는 앱 전체 UI의 근간이므로 가장 높은 학습 우선순위 부여
-- CameraX·Amplify는 공식 샘플 프로젝트를 fork하여 동작 확인 후 프로젝트에 통합
+- Flutter Widgets는 앱 전체 UI의 근간이므로 가장 높은 학습 우선순위 부여
+- camera·Amplify Flutter는 공식 샘플 프로젝트를 fork하여 동작 확인 후 프로젝트에 통합
 
 ---
 
@@ -396,7 +396,7 @@ AI 코드 생성 도구(Claude, Copilot 등)에 의존하여 작성한 코드를
 | RISK-AI1 | Lambda 비즈니스 로직 | AI가 생성한 AWS SDK 호출 코드(Rekognition, Textract 등)의 파라미터·응답 구조를 본인이 이해하지 못함 | 상 |
 | RISK-AI2 | Bedrock 프롬프트 엔지니어링 | AI가 작성한 프롬프트의 의도와 구조를 설명하지 못함. 프롬프트 수정 시 예상치 못한 품질 변화 발생 | 상 |
 | RISK-AI3 | SAM / IaC 템플릿 | AI가 생성한 template.yaml의 리소스 정의·권한 설정을 이해하지 못해 배포 오류 시 수정 불가 | 중 |
-| RISK-AI4 | Jetpack Compose UI | AI가 작성한 Composable 함수의 상태 관리(State Hoisting, Side Effects)를 이해하지 못해 UI 버그 수정 불가 | 중 |
+| RISK-AI4 | Flutter UI | AI가 작성한 Widget의 상태 관리(StatefulWidget, Provider/Riverpod)를 이해하지 못해 UI 버그 수정 불가 | 중 |
 | RISK-AI5 | Step Functions ASL | AI가 생성한 State Machine 정의(JSON)의 상태 전이·에러 핸들링 로직을 본인이 설명하지 못함 | 중 |
 | RISK-AI6 | 발표 질의응답 대응 | 코드의 동작 원리를 질문받았을 때 "AI가 작성했다"는 답변만 가능하여 학습 목표 미달 판정 | 상 |
 
@@ -435,12 +435,12 @@ AI 코드 생성 도구(Claude, Copilot 등)에 의존하여 작성한 코드를
 
 | 기능 | 미경험 라이브러리 | 미경험 API | AI 의존 위험 | 종합 위험도 |
 |---|---|---|---|---|
-| FR-1 장소 인식 | CameraX, Compose | Rekognition, Location, Bedrock | 프롬프트, SDK 코드 | **상** |
-| FR-2 실시간 통역 | Compose | Transcribe Streaming, Translate, Polly | SDK 코드 | **상** |
-| FR-3 메뉴판 OCR | CameraX, Compose | Textract, Translate, Bedrock | 프롬프트, 파싱 로직 | **상** |
+| FR-1 장소 인식 | camera 패키지, Flutter Widgets | Rekognition, Location, Bedrock | 프롬프트, SDK 코드 | **상** |
+| FR-2 실시간 통역 | Flutter Widgets | Transcribe Streaming, Translate, Polly | SDK 코드 | **상** |
+| FR-3 메뉴판 OCR | camera 패키지, Flutter Widgets | Textract, Translate, Bedrock | 프롬프트, 파싱 로직 | **상** |
 | FR-4 자동 여행기 | — | Step Functions, Bedrock | ASL 정의, 프롬프트 | **상** |
-| FR-5 영수증 가계부 | Compose | Textract AnalyzeExpense, Bedrock | SDK 코드 | **중** |
-| FR-6 날씨 일정 | Compose | OpenWeatherMap | 낮음 | **하** |
-| FR-7 채팅 일정 | Compose | Location Service, Bedrock | 프롬프트 | **중** |
+| FR-5 영수증 가계부 | Flutter Widgets | Textract AnalyzeExpense, Bedrock | SDK 코드 | **중** |
+| FR-6 날씨 일정 | Flutter Widgets | OpenWeatherMap | 낮음 | **하** |
+| FR-7 채팅 일정 | Flutter Widgets | Location Service, Bedrock | 프롬프트 | **중** |
 | 인증 | Amplify SDK | Cognito | 설정 코드 | **중** |
 | 인프라 | SAM | IAM, S3, DynamoDB | IaC 템플릿 | **중** |

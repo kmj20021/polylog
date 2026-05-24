@@ -23,7 +23,7 @@
 |---|---|---|---|
 | ADR-001 | 서버리스 아키텍처 채택 (Lambda + API Gateway) | 승인 | 백엔드 전체 |
 | ADR-002 | DynamoDB를 주 데이터베이스로 선정 | 승인 | 데이터 계층 전체 |
-| ADR-003 | Android (Kotlin + Jetpack Compose) 단일 플랫폼 | 승인 | 클라이언트 전체 |
+| ADR-003 | Flutter (Dart) 크로스 플랫폼 | 승인 | 클라이언트 전체 |
 | ADR-004 | Amazon Bedrock (Claude)을 종합 AI 엔진으로 채택 | 승인 | AI 처리 계층 |
 | ADR-005 | AWS AI 서비스 7종 조합 전략 | 승인 | AI 처리 계층 |
 | ADR-006 | Transcribe Streaming (WebSocket) 실시간 통역 | 승인 | 통역 기능 |
@@ -32,7 +32,7 @@
 | ADR-009 | S3 + CloudFront 미디어 저장 전략 | 승인 | 미디어 계층 |
 | ADR-010 | Bedrock Cross-Region 호출 (us-east-1) | 승인 | 네트워크·성능 |
 | ADR-011 | AWS SAM을 IaC 도구로 선정 | 승인 | 배포·운영 |
-| ADR-012 | Room 기반 오프라인 큐잉 전략 | 승인 | 클라이언트 네트워크 |
+| ADR-012 | sqflite 기반 오프라인 큐잉 전략 | 승인 | 클라이언트 네트워크 |
 
 ---
 
@@ -122,7 +122,7 @@
 
 ---
 
-## ADR-003: Android (Kotlin + Jetpack Compose) 단일 플랫폼
+## ADR-003: Flutter (Dart) 크로스 플랫폼 채택
 
 | 항목 | 내용 |
 |---|---|
@@ -133,30 +133,32 @@
 
 ### 맥락 (Context)
 
-PoC이자 포트폴리오 프로젝트로, 제한된 6주 일정 내에 7개 기능을 구현해야 한다. 카메라, 마이크, GPS 등 네이티브 디바이스 기능에 깊이 의존하며, AWS Amplify SDK와의 통합이 필요하다. iOS 동시 개발은 일정상 불가능하다.
+PoC이자 포트폴리오 프로젝트로, 제한된 6주 일정 내에 핵심 기능을 구현해야 한다. 카메라, GPS 등 네이티브 디바이스 기능에 의존하며, AWS Amplify SDK와의 통합이 필요하다. Android와 iOS 동시 데모가 가능하면 발표 임팩트가 높아진다.
 
 ### 결정 (Decision)
 
-**Android 네이티브 (Kotlin + Jetpack Compose)를 단일 클라이언트 플랫폼으로 채택한다. iOS는 PoC 범위에서 제외한다.**
+**Flutter (Dart)를 크로스 플랫폼 클라이언트로 채택한다. Android + iOS 동시 지원.**
 
 ### 근거 (Rationale)
 
 | 대안 | 장점 | 단점 | 기각 사유 |
 |---|---|---|---|
-| **Flutter** | 크로스 플랫폼, 빠른 UI 개발 | AWS Amplify Flutter 지원 제한적, CameraX 직접 사용 불가, 네이티브 브릿지 오버헤드 | AWS SDK 통합 마찰 |
-| **React Native** | JS 생태계, 웹 경험 활용 | 네이티브 카메라·오디오 스트리밍 성능 제한, AWS SDK 래퍼 필요 | 실시간 오디오 처리 부적합 |
-| **Kotlin + Compose (채택)** | Google 공식 권장, CameraX·FusedLocation 네이티브 통합, Amplify SDK 완전 지원, 최신 선언형 UI | Android 전용, Compose 학습 곡선 | — |
+| **Android Native (Kotlin + Compose)** | Google 공식 권장, CameraX 네이티브 통합, Amplify SDK 완전 지원 | Android 전용, iOS 데모 불가 | 단일 플랫폼 제한 |
+| **React Native** | JS 생태계 활용 | 네이티브 카메라·오디오 성능 제한, AWS SDK 래퍼 필요 | 성능 제한 |
+| **Flutter (채택)** | 크로스 플랫폼 (Android + iOS), Hot Reload로 빠른 개발, Amplify Flutter SDK 지원, 선언형 UI | Amplify Flutter SDK가 Android SDK 대비 상대적으로 최신, 네이티브 브릿지 필요 시 추가 작업 | — |
 
 ### 결과 (Consequences)
 
 **긍정적**
-- CameraX, Transcribe Streaming 오디오 등 네이티브 기능에 직접 접근
-- AWS Amplify Android SDK의 Cognito, S3 연동 완전 지원
-- Android 최신 스택 학습 (학습 목표 L-3 달성)
+- Android + iOS 동시 데모로 발표 임팩트 상승
+- Hot Reload로 UI 개발 속도 향상
+- AWS Amplify Flutter SDK로 Cognito, S3 연동 지원
+- Dart 언어의 학습 곡선이 비교적 낮아 진입 장벽 적음
 
 **부정적**
-- iOS 사용자 대상 시연 불가
-- Jetpack Compose 미경험으로 학습 곡선 존재 (RISK-LIB1)
+- Amplify Flutter SDK가 Android SDK 대비 상대적으로 최신 — 일부 edge case 문서 부족 가능
+- camera 패키지가 CameraX보다 기능이 제한적이나, 사진 촬영 용도로는 충분
+- Flutter 미경험으로 학습 곡선 존재 (RISK-LIB1)
 
 ---
 
@@ -494,7 +496,7 @@ Lambda + API Gateway + DynamoDB 중심의 서버리스 아키텍처를 코드로
 
 ---
 
-## ADR-012: Room 기반 오프라인 큐잉 전략
+## ADR-012: sqflite 기반 오프라인 큐잉 전략
 
 | 항목 | 내용 |
 |---|---|
@@ -509,12 +511,12 @@ Lambda + API Gateway + DynamoDB 중심의 서버리스 아키텍처를 코드로
 
 ### 결정 (Decision)
 
-**Room 로컬 데이터베이스에 오프라인 요청 큐를 구현하고, 네트워크 복구 시 자동으로 일괄 업로드(동기화)한다.**
+**sqflite 로컬 데이터베이스에 오프라인 요청 큐를 구현하고, 네트워크 복구 시 자동으로 일괄 업로드(동기화)한다.**
 
 ```
 [오프라인 동작 흐름]
-사진 촬영 → Room 큐 저장 (status: PENDING)
-         → 네트워크 감지 (ConnectivityManager)
+사진 촬영 → sqflite 큐 저장 (status: PENDING)
+         → 네트워크 감지 (connectivity_plus 패키지)
          → 연결 복구 시 큐 순차 처리 (S3 업로드 → API 호출)
          → 성공 시 status: COMPLETED
          → 실패 시 status: RETRY (최대 3회)
@@ -526,16 +528,16 @@ Lambda + API Gateway + DynamoDB 중심의 서버리스 아키텍처를 코드로
 |---|---|---|---|
 | **SharedPreferences** | 구현 최단순 | 구조화 데이터 부적합, 큐 관리 어려움, 대용량 미지원 | 기능 부족 |
 | **파일 시스템 직접 관리** | 미디어 파일은 이미 로컬 저장 | 메타데이터 관리 어려움, 큐 상태 추적 불편, 정렬·검색 불가 | 관리 복잡도 |
-| **Room (채택)** | SQLite 기반 구조화, 큐 상태 관리 용이, Kotlin Coroutines/Flow 지원, 앱 스키마 마이그레이션 | Room 라이브러리 학습 필요 | — |
+| **sqflite (채택)** | SQLite 기반 구조화, 큐 상태 관리 용이, Dart async/await 지원, 크로스 플랫폼 호환 | sqflite 라이브러리 학습 필요 | — |
 
 ### 결과 (Consequences)
 
 **긍정적**
 - 네트워크 단절 시에도 사용자 경험 연속성 유지
 - 큐 테이블의 status 컬럼으로 PENDING/UPLOADING/COMPLETED/FAILED 상태 추적
-- Kotlin Flow로 큐 변화 실시간 감지 → UI에 동기화 진행률 표시 가능
+- StreamController/ChangeNotifier로 큐 변화 실시간 감지 → UI에 동기화 진행률 표시 가능
 
 **부정적**
-- Room 스키마 설계 + ConnectivityManager 리스너 구현 추가 공수
+- sqflite 스키마 설계 + connectivity_plus 리스너 구현 추가 공수
 - 동기화 순서 보장 로직 (시간순 큐 처리) 필요
 - 미디어 파일 자체는 Room이 아닌 로컬 파일시스템에 저장 → 메타데이터와 파일의 일관성 관리 필요

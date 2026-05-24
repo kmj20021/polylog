@@ -59,11 +59,11 @@ Phase 2 = 메뉴판 + 가계부 + 채팅 일정 + 여행기 + 최적화
 | | Lambda 헬스체크 배포 + SAM 초기 구성 | 1.2.4.3~1.2.4.4 | fn-health, template.yaml |
 | | Cognito User Pool + App Client 설정 | 1.2.5.1~1.2.5.3 | 인증 인프라 |
 | | Bedrock 모델 액세스 요청, Location Service 설정 | 1.2.6.1~1.2.6.3 | AI 서비스 준비 |
-| **Android 앱** | 프로젝트 생성 (Kotlin + Compose) | 1.3.1.1~1.3.1.3 | 앱 스켈레톤 |
-| | 메인 네비게이션 6탭 구현 | 1.3.2.1~1.3.2.3 | 네비게이션 UI |
-| | 회원가입·로그인 + Amplify Cognito 연동 | 1.3.3.1~1.3.3.3 | 인증 화면 |
-| | Retrofit API 클라이언트 + S3 업로더 구성 | 1.3.4.1~1.3.4.2 | 공통 모듈 |
-| | Room 오프라인 큐 + 위치 서비스 유틸 | 1.3.4.3~1.3.4.4 | 인프라 모듈 |
+| **Flutter 앱** | 프로젝트 생성 (Flutter + Dart) | 1.3.1.1~1.3.1.3 | 앱 스켈레톤 |
+| | 메인 네비게이션 구현 | 1.3.2.1~1.3.2.3 | 네비게이션 UI |
+| | 회원가입·로그인 + Amplify Flutter Cognito 연동 | 1.3.3.1~1.3.3.3 | 인증 화면 |
+| | dio API 클라이언트 + S3 업로더 구성 | 1.3.4.1~1.3.4.2 | 공통 모듈 |
+| | sqflite 오프라인 큐 + 위치 서비스 유틸 | 1.3.4.3~1.3.4.4 | 인프라 모듈 |
 
 **10주차 완료 기준 (Exit Criteria)**
 - [ ] AWS 인프라 전체 프로비저닝 완료
@@ -80,7 +80,7 @@ Phase 2 = 메뉴판 + 가계부 + 채팅 일정 + 여행기 + 최적화
 |---|---|---|---|
 | **장소 인식** | fn-place Lambda (Rekognition + Location + Bedrock) | 1.4.1.1~1.4.1.6 | 장소 분석 백엔드 |
 | | Bedrock 프롬프트 설계 및 튜닝 | 1.4.1.4~1.4.1.5 | 최적화된 프롬프트 |
-| | CameraX 촬영 → S3 → API → 결과 카드 표시 | 1.4.2.1~1.4.2.4 | 카메라 탭 E2E |
+| | camera 패키지 촬영 → S3 → API → 결과 카드 표시 | 1.4.2.1~1.4.2.4 | 카메라 탭 E2E |
 | | Polly 음성 변환 + "음성으로 듣기" 기능 | 1.4.1.7, 1.4.2.5 | 음성 재생 |
 | **실시간 통역** | fn-translate Lambda (Transcribe + Translate + Polly) | 1.5.1.1~1.5.1.6 | 통역 백엔드 |
 | | 양방향 통역 UI + 마이크 스트리밍 | 1.5.2.1~1.5.2.4 | 통역 탭 E2E |
@@ -326,13 +326,13 @@ Phase 2 = 메뉴판 + 가계부 + 채팅 일정 + 여행기 + 최적화
 
 | 항목 | 내용 |
 |---|---|
-| **위험** | Jetpack Compose, CameraX, Amplify SDK, Room, Retrofit, AWS SAM 등 프로젝트 핵심 라이브러리를 모두 처음 사용. 공식 문서 학습 + 시행착오에 예상보다 많은 시간 소요되어 기능 구현 일정 지연 |
+| **위험** | Flutter Widgets, camera 패키지, Amplify Flutter SDK, sqflite, dio, AWS SAM 등 프로젝트 핵심 라이브러리를 모두 처음 사용. 공식 문서 학습 + 시행착오에 예상보다 많은 시간 소요되어 기능 구현 일정 지연 |
 | **발생 확률** | 상 |
 | **영향도** | 상 — 10~11주차 기반 구축 및 핵심 기능 전체에 영향 |
 | **해당 주차** | 10~11주차 (집중 영향), 이후 주차에도 지속 |
-| **상세 위험 항목** | Jetpack Compose: 선언형 UI 패러다임 자체가 새로움 (상태 관리, 리컴포지션 이해 필요) / CameraX: 카메라 라이프사이클·프리뷰 바인딩 복잡 / Amplify SDK: Cognito 연동 시 토큰 관리·세션 처리 설정 복잡 / SAM: template.yaml 문법·로컬 테스트 환경 세팅 |
-| **대응 방안** | **사전 학습**: 10주차 착수 전 Jetpack Compose Codelab(Basics + State), CameraX Getting Started를 반드시 완주. **점진적 통합**: 한 번에 모든 라이브러리를 도입하지 않고, 10주차에는 Compose + Amplify + Retrofit만 우선 통합, CameraX는 11주차 장소 인식 개발 시 도입. **샘플 프로젝트 활용**: 각 라이브러리의 공식 샘플 앱을 fork하여 동작 확인 후 필요한 코드만 프로젝트에 이식. **학습 시간 예산**: 10주차 전체 시간의 30%를 학습에 명시적으로 할당 |
-| **트리거** | 10주차 3일차까지 Compose 기본 네비게이션 + Amplify 로그인 미동작 시, Compose 학습에 나머지 시간 집중 투입하고 다른 기능은 11주차로 이월 |
+| **상세 위험 항목** | Flutter: 위젯 트리, 상태 관리(StatefulWidget, Provider) 패러다임 이해 필요 / camera 패키지: 카메라 컨트롤러 초기화·해제 관리 / Amplify Flutter SDK: Cognito 연동 시 토큰 관리·세션 처리 설정 / SAM: template.yaml 문법·로컬 테스트 환경 세팅 |
+| **대응 방안** | **사전 학습**: 10주차 착수 전 Flutter 공식 Codelab(Basics + State Management), camera Getting Started를 반드시 완주. **점진적 통합**: 한 번에 모든 라이브러리를 도입하지 않고, 10주차에는 Flutter + Amplify Flutter + dio만 우선 통합, camera 패키지는 11주차 기능 개발 시 도입. **샘플 프로젝트 활용**: 각 패키지의 공식 예제를 참고하여 동작 확인 후 필요한 코드만 프로젝트에 이식. **학습 시간 예산**: 10주차 전체 시간의 30%를 학습에 명시적으로 할당 |
+| **트리거** | 10주차 3일차까지 Flutter 기본 네비게이션 + Amplify 로그인 미동작 시, Flutter 학습에 나머지 시간 집중 투입하고 다른 기능은 11주차로 이월 |
 
 ---
 
