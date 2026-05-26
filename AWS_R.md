@@ -23,6 +23,8 @@ Polylog v2.0은 서버리스(Lambda + API Gateway) 기반 PoC이자 **학습 목
 
 > 단, Lambda 실행 역할 4종(§4-1)은 `iam:CreateRole`이 민감 권한이라, **계정 발급 시 관리자가 함께 생성**해 주시면 개발자는 `iam:PassRole`로 참조만 합니다.
 
+> 🚀 **기호 안내**: 본 문서에서 **🚀 표시는 "개발자가 직접 배포(`sam deploy`)로 생성·관리하는 부분"** 입니다. 🚀가 없는 항목은 관리자 조치(서비스 활성화·모델 액세스 승인·IAM 권한 부여·실행 역할 사전 생성)입니다.
+
 **관리자 사용법**
 1. §2 요약 테이블로 전체 요청 범위를 파악합니다.
 2. §3~§5에서 서비스별 상세·선행 조건을 확인합니다.
@@ -41,13 +43,13 @@ Polylog v2.0은 서버리스(Lambda + API Gateway) 기반 PoC이자 **학습 목
 | **Amazon Bedrock (Claude Haiku)** | **us-east-1** | 자연어 추천·분류·대화 (4개 전체) | **모델 액세스 승인** + `InvokeModel` 권한 | ADR-004, ADR-009 |
 | Amazon Textract | ap-northeast-2 | 메뉴판/영수증 OCR (서브1·2) | IAM 권한 부여 (활성화 불필요) | ADR-005 |
 | Amazon Translate | ap-northeast-2 | 메뉴 번역 (서브1) | IAM 권한 부여 (활성화 불필요) | ADR-005 |
-| AWS Lambda | ap-northeast-2 | 백엔드 함수 5종 | 생성·관리 IAM 권한 부여 (개발자 배포) | ADR-001 |
-| Amazon API Gateway | ap-northeast-2 | REST API + 인가 | 생성·관리 IAM 권한 부여 | ADR-001, ADR-007 |
-| Amazon DynamoDB | ap-northeast-2 | 구조화 데이터(엔티티 8종) | 생성·관리 IAM 권한 부여 | ADR-002 |
-| Amazon S3 | ap-northeast-2 | 미디어(사진·영수증) 저장 + Presigned URL 조회 | 생성·관리 IAM 권한 부여 | ADR-008 |
-| Amazon Cognito | ap-northeast-2 | 사용자 인증 | 생성·관리 IAM 권한 부여 | ADR-007 |
+| 🚀 AWS Lambda | ap-northeast-2 | 백엔드 함수 5종 | 생성·관리 IAM 권한 부여 (개발자 배포) | ADR-001 |
+| 🚀 Amazon API Gateway | ap-northeast-2 | REST API + 인가 | 생성·관리 IAM 권한 부여 | ADR-001, ADR-007 |
+| 🚀 Amazon DynamoDB | ap-northeast-2 | 구조화 데이터(엔티티 8종) | 생성·관리 IAM 권한 부여 | ADR-002 |
+| 🚀 Amazon S3 | ap-northeast-2 | 미디어(사진·영수증) 저장 + Presigned URL 조회 | 생성·관리 IAM 권한 부여 | ADR-008 |
+| 🚀 Amazon Cognito | ap-northeast-2 | 사용자 인증 | 생성·관리 IAM 권한 부여 | ADR-007 |
 | Amazon CloudWatch | ap-northeast-2 | 로그·메트릭 | 실행 역할에 로그 권한 포함 | 기획 §4.2 |
-| AWS CloudFormation (SAM) | ap-northeast-2 | 스택 배포 | 배포 IAM 권한 부여 | ADR-010 |
+| 🚀 AWS CloudFormation (SAM) | ap-northeast-2 | 스택 배포 | 배포 IAM 권한 부여 | ADR-010 |
 | **IAM 실행 역할 4종** | 글로벌 | Lambda 함수별 최소 권한 | **역할 생성(발급 시 포함)** + 개발자에 `PassRole` 부여 | 기획 §6, NFR-S2 |
 
 > **리전 원칙**: 거의 모든 리소스는 **서울(ap-northeast-2)**. **Bedrock만 버지니아(us-east-1)** 로 cross-region 호출(ADR-009).
@@ -87,7 +89,7 @@ Polylog v2.0은 서버리스(Lambda + API Gateway) 기반 PoC이자 **학습 목
 
 ### (B) 컴퓨트 · API (서울 ap-northeast-2)
 
-#### B-1. AWS Lambda — 함수 5종
+#### B-1. 🚀 AWS Lambda — 함수 5종
 | 함수 | 역할 | 사용 AWS 서비스 |
 |---|---|---|
 | fn-health | 헬스체크 | — |
@@ -97,7 +99,7 @@ Polylog v2.0은 서버리스(Lambda + API Gateway) 기반 PoC이자 **학습 목
 | fn-schedule | 대화형 일정 관리 | Bedrock |
 | **관리자 조치** | Lambda 생성·관리 IAM 권한 부여 → 개발자가 `sam deploy`로 함수 생성. 무료 티어 100만 요청/월 내 운영. |
 
-#### B-2. Amazon API Gateway
+#### B-2. 🚀 Amazon API Gateway
 | 항목 | 내용 |
 |---|---|
 | 용도 | REST API 엔드포인트, Cognito Authorizer로 인증 요청만 통과(NFR-S4) |
@@ -107,14 +109,14 @@ Polylog v2.0은 서버리스(Lambda + API Gateway) 기반 PoC이자 **학습 목
 
 ### (C) 데이터 · 미디어 (서울)
 
-#### C-1. Amazon DynamoDB
+#### C-1. 🚀 Amazon DynamoDB
 | 항목 | 내용 |
 |---|---|
 | 용도 | 구조화 데이터(User, Trip, Recommendation, Menu, Expense, Schedule, ChatMessage 등 8종 엔티티) |
 | 권장 설정 | **On-Demand** 모드(ADR-002), 무료 티어 25GB 내 |
 | 관리자 조치 | DynamoDB 생성·관리 IAM 권한 부여 → 개발자가 배포 |
 
-#### C-2. Amazon S3
+#### C-2. 🚀 Amazon S3
 | 항목 | 내용 |
 |---|---|
 | 용도 | 미디어 버킷 — 프리픽스 `photos/`(메뉴판), `receipts/`(영수증). 앱 업로드/조회 모두 **Presigned URL**로 처리 |
@@ -125,7 +127,7 @@ Polylog v2.0은 서버리스(Lambda + API Gateway) 기반 PoC이자 **학습 목
 
 ### (D) 인증 (서울)
 
-#### D-1. Amazon Cognito
+#### D-1. 🚀 Amazon Cognito
 | 항목 | 내용 |
 |---|---|
 | 용도 | 이메일+비밀번호 사용자 인증, API Gateway Cognito Authorizer 연동 |
@@ -146,7 +148,7 @@ Polylog v2.0은 서버리스(Lambda + API Gateway) 기반 PoC이자 **학습 목
 
 ### (F) 배포 도구
 
-#### F-1. AWS SAM / CloudFormation
+#### F-1. 🚀 AWS SAM / CloudFormation
 | 항목 | 내용 |
 |---|---|
 | 용도 | `template.yaml` 하나로 전체 인프라 배포(ADR-010) — **개발자가 직접 수행** |
@@ -175,7 +177,7 @@ Polylog v2.0은 서버리스(Lambda + API Gateway) 기반 PoC이자 **학습 목
 ### 4-2. Cross-region 주의 (ADR-009)
 Lambda는 서울에 배포되지만 **Bedrock은 us-east-1을 호출**합니다. 위 역할의 `bedrock:InvokeModel` 권한이 **us-east-1 리소스 대상으로 허용**되어야 합니다(리전 한정 정책 시 us-east-1 포함 필수).
 
-### 4-3. 배포 권한 — 개발자 계정에 부여 (access key 미발급)
+### 4-3. 🚀 배포 권한 — 개발자 계정에 부여 (access key 미발급)
 
 개발자가 직접 배포하므로, **발급받는 개발자 계정(IAM 사용자/SSO 역할)** 에 아래 액션을 부여해 주세요. 로컬에 access key를 두지 않고 **콘솔 CloudShell**에서 `sam deploy`를 실행합니다(유출 위험 차단).
 
@@ -241,13 +243,13 @@ Lambda는 서울에 배포되지만 **Bedrock은 us-east-1을 호출**합니다.
 - [ ] Bedrock `InvokeModel` (us-east-1 대상)
 - [ ] Textract `DetectDocumentText` / `AnalyzeExpense`
 - [ ] Translate `TranslateText`
-- [ ] Lambda 생성·관리 (fn-* 스코프)
-- [ ] API Gateway 생성·관리
-- [ ] DynamoDB 생성·관리 (Polylog 테이블)
-- [ ] S3 생성·관리 (배포 버킷 + 미디어 버킷) — 암호화·퍼블릭 차단은 template
-- [ ] Cognito 생성·관리 (User Pool/App Client)
-- [ ] CloudFormation 배포 액션 (§4-3 표)
-- [ ] `iam:PassRole` — §4-1의 4개 실행 역할 ARN으로만 한정 (`CreateRole` 미부여)
+- [ ] 🚀 Lambda 생성·관리 (fn-* 스코프)
+- [ ] 🚀 API Gateway 생성·관리
+- [ ] 🚀 DynamoDB 생성·관리 (Polylog 테이블)
+- [ ] 🚀 S3 생성·관리 (배포 버킷 + 미디어 버킷) — 암호화·퍼블릭 차단은 template
+- [ ] 🚀 Cognito 생성·관리 (User Pool/App Client)
+- [ ] 🚀 CloudFormation 배포 액션 (§4-3 표)
+- [ ] 🚀 `iam:PassRole` — §4-1의 4개 실행 역할 ARN으로만 한정 (`CreateRole` 미부여)
 
 **(다) IAM 실행 역할 4종 — 관리자 사전 생성(발급 시 포함)**
 - [ ] LambdaRecommendRole / LambdaMenuRole / LambdaReceiptRole / LambdaScheduleRole (액션 단위 최소권한, FullAccess 금지)
