@@ -5,7 +5,7 @@
 | 프로젝트명 | Polylog (AI 여행 동행자) |
 | 버전 | v2.0 PoC |
 | 작성일 | 2026-05-25 |
-| 근거 문서 | `polylog-plan.md`, `requirements.md` v2.0 |
+| 근거 문서 | `polylog-plan.md`, `requirements.md` v2.0, `polylog-iam-guide.md` (관리자 IAM 발급 회신) |
 | 총 개발 기간 | 4주 (12~15주차, 주당 20시간 기준) |
 
 ---
@@ -15,6 +15,7 @@
 | 일자 | 버전 | 변경 내용 |
 |---|---|---|
 | 2026-05-25 | 2.0 | v2.0 기획서 기반 전면 재작성 — Main+Sub 구조, 4주 일정 |
+| 2026-05-27 | 2.0.1 | 관리자 IAM 발급 가이드 반영 — Cognito 작업 제거→소셜 OAuth+`fn-authorizer`, 공용 SafeRole-polylog, CloudFront 작업 제거, `polylog` prefix·CloudShell 배포, Lambda 5종→6종 |
 
 ---
 
@@ -64,29 +65,29 @@
 
 | WBS ID | 작업 | 산출물 | 선행 작업 | 관련 요구사항 |
 |---|---|---|---|---|
-| **1.2.1** | **IAM 및 계정 설정** | | | |
-| 1.2.1.1 | AWS 계정 생성 및 MFA 설정 | 루트 계정 보안 | — | CON-4 |
-| 1.2.1.2 | IAM 사용자 생성 (개발용) | IAM 사용자 | 1.2.1.1 | NFR-S2 |
-| 1.2.1.3 | Lambda 함수별 IAM 역할 4종 설계 | IAM 역할 정의서 | 1.2.1.2 | NFR-S2 |
-| 1.2.1.4 | AWS Budgets 결제 알람 설정 ($20) | 알람 설정 | 1.2.1.1 | NFR-C3 |
+| **1.2.1** | **IAM 계정 수령 및 규약 숙지** | | | |
+| 1.2.1.1 | IAM 사용자(polylog-N) 수령 · 최초 로그인 · 비밀번호 변경 · MFA 설정 | 계정 보안 | — | CON-4 |
+| 1.2.1.2 | 허가 서비스·리전(서울/Bedrock us-east-1)·`polylog` prefix·태그 격리 규약 숙지 | 규약 체크리스트 | 1.2.1.1 | NFR-S2 |
+| 1.2.1.3 | 공용 실행 역할 `SafeRole-polylog` 확인 및 SAM `Globals.Function.Role` 적용 (역할 생성 불가, `iam:CreateRole` 차단) | 역할 적용 | 1.2.1.2 | NFR-S2 |
+| 1.2.1.4 | 콘솔에서 사용량·비용 모니터링 (Budgets 알람은 관리자 계정 차원 관리) | 사용량 점검 | 1.2.1.1 | NFR-C3 |
 | **1.2.2** | **스토리지 구성** | | | |
-| 1.2.2.1 | S3 버킷 생성 (photos/, receipts/) | S3 버킷 | 1.2.1.2 | TR-INF3, NFR-S1 |
-| 1.2.2.2 | S3 SSE 암호화 정책 적용 | 암호화 정책 | 1.2.2.1 | NFR-S1 |
-| 1.2.2.3 | CloudFront 배포 설정 (사진 CDN) | CloudFront 배포 | 1.2.2.1 | TR-INF6 |
+| 1.2.2.1 | S3 버킷 생성 `polylog-media` (photos/, receipts/) — `polylog` prefix 필수 | S3 버킷 | 1.2.1.2 | TR-INF3, NFR-S1 |
+| 1.2.2.2 | S3 SSE-S3 암호화 + 퍼블릭 액세스 차단 정책 적용 | 암호화 정책 | 1.2.2.1 | NFR-S1 |
+| 1.2.2.3 | S3 Presigned URL 업로드·조회 정책 구성 (CloudFront 차단 — 미사용) | Presigned URL 정책 | 1.2.2.1 | TR-INF6, ADR-008 |
 | **1.2.3** | **데이터베이스 구성** | | | |
 | 1.2.3.1 | DynamoDB 테이블 설계 (키 스키마, GSI) | 테이블 설계서 | — | DR-1~8 |
-| 1.2.3.2 | DynamoDB 테이블 생성 (User, Trip, Recommendation, Menu, Expense, Schedule, ChatMessage) | 테이블 7종 | 1.2.3.1 | TR-INF4 |
+| 1.2.3.2 | DynamoDB 테이블 생성 — `polylog` prefix 필수 (예: `polylog-users`, `polylog-trips`, `polylog-recommendations`, `polylog-menus`, `polylog-expenses`, `polylog-schedules`, `polylog-chatmessages`). `polylog-users`에 소셜 OAuth sub + email 저장 | 테이블 7종 | 1.2.3.1 | TR-INF4 |
 | 1.2.3.3 | 용량 모드 설정 (On-Demand) | 용량 설정 | 1.2.3.2 | NFR-C2 |
 | **1.2.4** | **API 및 서버리스 기반** | | | |
 | 1.2.4.1 | API Gateway REST API 생성 | API Gateway | 1.2.1.3 | TR-INF2 |
 | 1.2.4.2 | Lambda 헬스체크 함수(fn-health) 배포 및 연결 테스트 | fn-health | 1.2.4.1 | LF-1 |
-| 1.2.4.3 | SAM 템플릿 초기 구성 | template.yaml | 1.2.4.1 | TR-DEV1 |
-| **1.2.5** | **인증 구성** | | | |
-| 1.2.5.1 | Cognito User Pool 생성 | User Pool | 1.2.1.2 | TR-INF5, NFR-S3 |
-| 1.2.5.2 | Cognito App Client 설정 | App Client | 1.2.5.1 | NFR-S3 |
-| 1.2.5.3 | API Gateway Cognito Authorizer 연결 | Authorizer | 1.2.5.1, 1.2.4.1 | NFR-S4 |
+| 1.2.4.3 | SAM 템플릿 초기 구성 (`Globals.Function.Role`=SafeRole-polylog) + 배포 버킷 `polylog-sam-deploy` 선생성 + CloudShell `sam deploy` | template.yaml | 1.2.4.1 | TR-DEV1 |
+| **1.2.5** | **인증 구성 (소셜 OAuth)** | | | |
+| 1.2.5.1 | Google/Kakao OAuth 클라이언트 등록 (redirect URI 설정) | OAuth 앱 등록 | — | TR-INF5, NFR-S3 |
+| 1.2.5.2 | `fn-authorizer` Lambda 구현 — 소셜 ID 토큰 JWKS 검증 (무상태) | 인가 Lambda | 1.2.4.1 | NFR-S4, LF-6 |
+| 1.2.5.3 | API Gateway Lambda Authorizer 연결 (`fn-authorizer`) | Authorizer | 1.2.5.2, 1.2.4.1 | NFR-S4 |
 | **1.2.6** | **AI 서비스 사전 설정** | | | |
-| 1.2.6.1 | Bedrock 모델 액세스 요청 (us-east-1) | 모델 액세스 | 1.2.1.1 | TR-AI1, CON-3 |
+| 1.2.6.1 | Bedrock 모델 액세스 확인 (us-east-1, 관리자 승인) | 모델 액세스 | 1.2.1.1 | TR-AI1, CON-3 |
 
 ---
 
@@ -96,18 +97,18 @@
 |---|---|---|---|---|
 | **1.3.1** | **프로젝트 초기화** | | | |
 | 1.3.1.1 | Flutter 프로젝트 생성 (Dart) | 프로젝트 스켈레톤 | — | TR-CLI1, TR-CLI2 |
-| 1.3.1.2 | 의존성 설정 (camera, dio, sqflite, geolocator, Amplify Flutter) | pubspec.yaml | 1.3.1.1 | TR-CLI3~7 |
+| 1.3.1.2 | 의존성 설정 (camera, dio, sqflite, geolocator, google_sign_in, kakao_flutter_sdk) | pubspec.yaml | 1.3.1.1 | TR-CLI3~7 |
 | 1.3.1.3 | 패키지 구조 설계 (feature 기반) | 패키지 구조 | 1.3.1.1 | — |
 | **1.3.2** | **공통 UI 구축** | | | |
 | 1.3.2.1 | 메인 네비게이션 구현 (4탭: 추천·메뉴판·영수증·일정) | 네비게이션 | 1.3.1.1 | NFR-U2 |
 | 1.3.2.2 | 공통 UI 컴포넌트 (카드, 로딩, 에러 상태) | UI 컴포넌트 | 1.3.2.1 | NFR-U4 |
 | 1.3.2.3 | 테마 및 디자인 시스템 적용 (Material Design 3) | 테마 설정 | 1.3.2.1 | NFR-U4 |
-| **1.3.3** | **인증 화면** | | | |
-| 1.3.3.1 | 회원가입 화면 구현 | 회원가입 UI | 1.2.5.2, 1.3.2.1 | NFR-S3 |
-| 1.3.3.2 | 로그인 화면 구현 | 로그인 UI | 1.3.3.1 | NFR-S3 |
-| 1.3.3.3 | Amplify Flutter SDK Cognito 연동 | 인증 흐름 | 1.3.3.2, 1.2.5.1 | TR-CLI7 |
+| **1.3.3** | **인증 화면 (소셜 로그인)** | | | |
+| 1.3.3.1 | 소셜 로그인 화면 구현 (Google/Kakao 버튼) | 로그인 UI | 1.3.2.1 | NFR-S3 |
+| 1.3.3.2 | google_sign_in / kakao_flutter_sdk OAuth 연동 → ID 토큰 획득 | 인증 흐름 | 1.3.3.1, 1.2.5.1 | TR-CLI7 |
+| 1.3.3.3 | 토큰 보관·갱신 및 로그아웃 처리 | 세션 관리 | 1.3.3.2 | NFR-S3 |
 | **1.3.4** | **공통 인프라 모듈** | | | |
-| 1.3.4.1 | dio API 클라이언트 구성 (인증 토큰 자동 첨부) | API 클라이언트 | 1.3.3.3, 1.2.4.1 | TR-CLI5 |
+| 1.3.4.1 | dio API 클라이언트 구성 (소셜 ID 토큰 자동 첨부) | API 클라이언트 | 1.3.3.2, 1.2.4.1 | TR-CLI5 |
 | 1.3.4.2 | S3 업로드 유틸리티 구현 | S3 업로더 | 1.3.4.1, 1.2.2.1 | TR-INF3 |
 | 1.3.4.3 | sqflite 로컬 DB 설정 (오프라인 큐 테이블) | sqflite DB | 1.3.1.2 | TR-CLI6, NFR-A2 |
 | 1.3.4.4 | geolocator 위치 서비스 유틸리티 구현 | 위치 모듈 | 1.3.1.2 | TR-CLI4 |
@@ -250,7 +251,7 @@
 | 최상위 작업 패키지 (Level 1) | 9개 |
 | 중간 작업 패키지 (Level 2) | 27개 |
 | 최하위 작업 항목 (Level 3) | 95개 |
-| Lambda 함수 | 5개 |
+| Lambda 함수 | 6개 (핵심 5 + 인가 `fn-authorizer` 1) |
 | DynamoDB 테이블 | 7종 (8개 엔티티) |
 | AWS AI 서비스 | 3종 |
 | 총 개발 기간 | 4주 (12~15주차) |
@@ -288,4 +289,6 @@ Bedrock 프롬프트 설계가 전체 일정의 크리티컬 패스. 메인(1.4)
 | 1.5 (메뉴판) | 비정형 메뉴판 OCR 정확도 | 중 | 촬영 가이드라인 UI로 품질 유도 |
 | 1.7 (AI 일정) | 대화 컨텍스트 관리 복잡도 | 중 | 최근 10개 메시지로 컨텍스트 윈도우 제한 |
 | 1.2~1.3 (환경 구축) | Flutter + AWS 초기 설정 지연 | 중 | 12주차에 환경 구축과 메인 기능을 병행 |
+| 1.2.5·1.3.3 (인증) | 소셜 OAuth redirect URI/JWKS 검증 설정 오류 | 중 | Google/Kakao 콘솔 설정 1회 수동 검증 후 코드화, `fn-authorizer` 단위 토큰 검증 테스트 |
+| 1.2.4 (배포) | Access Key 미발급 → 로컬 SAM 불가, CloudShell 전용 디버깅 | 중 | 단위 로직은 PoC 스크립트로 선검증, 통합은 배포 후 실환경 확인 |
 | 전체 | 4주 일정 내 완성 실패 | 상 | 메인 기능 우선 완성 → 서브 기능 순차 진행. 최악 시 서브3 축소 |
