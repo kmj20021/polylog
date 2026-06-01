@@ -1,0 +1,123 @@
+/* Polylog 발표 테마 — 심플 / 2색 포인트(숲 그린 · 하늘 블루) */
+:root {
+  --ink:   #16263d;   /* 본문 */
+  --sub:   #64748b;   /* 보조 */
+  --sky:   #2b8de6;   /* 포인트 ①: 하늘·물 */
+  --sky-d: #1e6fd6;
+  --forest:#2e9e5b;   /* 포인트 ②: 숲 */
+  --forest-d:#1f7d45;
+  --line:  #e6ecf3;
+  --card:  #ffffff;
+}
+
+.reveal {
+  font-family: "Pretendard", "Noto Sans KR", "Segoe UI", system-ui, sans-serif;
+  color: var(--ink);
+  font-size: 30px;
+}
+.reveal .slides section { text-align: left; top: 0 !important; height: 100%; }
+.reveal h1, .reveal h2, .reveal h3 { color: var(--ink); font-weight: 800; letter-spacing: -0.02em; text-transform: none; }
+.reveal h1 { font-size: 2.4em; line-height: 1.1; }
+.reveal h2 { font-size: 1.5em; margin-bottom: 0.5em; }
+.reveal strong { color: var(--sky-d); font-weight: 800; }
+.reveal em { color: var(--sub); font-style: normal; }
+.reveal a { color: var(--sky-d); }
+
+/* ── 지구·비행 상징 배경 (전 슬라이드 공통, 아주 옅게) ── */
+.bg-motif { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.bg-motif svg { position: absolute; width: 100%; height: 100%; }
+.reveal, .reveal .slides { z-index: 1; }
+
+/* 내용 슬라이드: 흰색 패널 (배경 선과 분리해 가독성 확보) */
+.panel {
+  position: relative; height: 100%; box-sizing: border-box;
+  background: #ffffff; border: 1px solid var(--line); border-radius: 20px;
+  padding: 30px 40px; box-shadow: 0 10px 34px rgba(22,38,61,0.08);
+}
+
+.panel.center { display: flex; flex-direction: column; justify-content: center; }
+
+/* ── 슬라이드 3: 핵심 키워드 4 ── */
+.keywords { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 0.5em; }
+.kw { background: #fff; border: 1px solid var(--line); border-left: 5px solid var(--sky);
+  border-radius: 14px; padding: 20px 24px; }
+.kw .k { font-size: 1.15em; font-weight: 800; color: var(--ink); }
+.kw .d { font-size: 0.72em; color: var(--sub); margin-top: 0.35em; line-height: 1.45; }
+
+/* 섹션 이름표 */
+.kicker {
+  display: inline-block; font-size: 0.5em; font-weight: 800; letter-spacing: 0.2em;
+  color: var(--sky-d); border: 1.5px solid var(--sky); border-radius: 999px;
+  padding: 0.3em 1em; margin-bottom: 0.7em;
+}
+
+/* ── 슬라이드 1: 타이틀 ── */
+.hero { text-align: center; padding-top: 0.3em; }
+.hero .logo {
+  font-size: 4em; font-weight: 900; letter-spacing: -0.03em;
+  color: var(--sky-d);
+}
+.hero .tagline { color: var(--sub); font-size: 1.05em; margin-top: 0.15em; }
+.hero .pitch { margin-top: 0.9em; font-size: 1.15em; font-weight: 700; }
+.hero .worry { margin-top: 0.55em; color: var(--forest-d); font-weight: 800; font-size: 1.2em; }
+
+/* ── 4카드 그리드 ── */
+.grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 0.3em; }
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+  padding: 16px 20px; box-shadow: 0 4px 14px rgba(22,38,61,0.04);
+}
+.card .num { font-size: 0.7em; font-weight: 800; color: var(--sky); letter-spacing: 0.05em; }
+.card .ttl { font-weight: 800; margin: 0.1em 0 0.25em; font-size: 0.95em; }
+.card .desc { color: var(--sub); font-size: 0.74em; line-height: 1.5; }
+.card .tag { display: inline-block; margin-top: 0.55em; font-size: 0.58em; font-weight: 800;
+  color: var(--forest-d); background: #eaf6ef; padding: 0.22em 0.8em; border-radius: 999px; }
+.card .flag { color: var(--sky-d); font-weight: 800; }
+.card .aspire { color: #9aa7b6; }
+
+/* ── 비전 4선언 ── */
+.vision { display: grid; gap: 15px; margin-top: 0.2em; }
+.vision .line { font-size: 1.1em; font-weight: 800; line-height: 1.3;
+  padding-left: 0.7em; border-left: 4px solid var(--sky); }
+.vision .line span { display: block; font-size: 0.5em; font-weight: 600; color: var(--sub); margin-top: 0.25em; }
+
+/* ── 솔루션 ── */
+.solution { margin-top: 0.2em; }
+.main-feat { background: #eef6fd; border: 1px solid var(--line); border-left: 5px solid var(--sky);
+  border-radius: 12px; padding: 14px 22px; margin-bottom: 14px; }
+.main-feat .ttl { font-weight: 800; color: var(--sky-d); }
+.main-feat .desc { font-size: 0.72em; color: var(--sub); margin-top: 0.15em; }
+.sub3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.sub3 .card { border-top: 4px solid var(--forest); }
+
+/* ── Mermaid (아키텍처) ── */
+.reveal .mermaid { background: transparent; text-align: center; line-height: normal; }
+.reveal .mermaid svg { max-width: 100%; height: auto !important; max-height: 540px; }
+.diagram-caption { color: var(--sub); font-size: 0.6em; text-align: center; margin-top: 0.35em; }
+
+/* ── 슬라이드 6: WBS CSS 타임라인 (오류 없는 대체) ── */
+.timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 0.3em 0 0.7em; }
+.tl { border-radius: 12px; border: 1px solid var(--line); padding: 12px 14px; background: var(--card); }
+.tl .wk { font-size: 0.62em; font-weight: 800; color: var(--sub); letter-spacing: 0.05em; }
+.tl .th { font-weight: 800; font-size: 0.82em; margin: 0.2em 0 0.4em; }
+.tl .st { font-size: 0.58em; font-weight: 800; padding: 0.2em 0.7em; border-radius: 999px; }
+.tl.done   { border-top: 4px solid var(--forest); }
+.tl.active { border-top: 4px solid var(--sky); }
+.tl.todo   { border-top: 4px solid #cbd5e1; }
+.tl.done   .st { color: var(--forest-d); background: #eaf6ef; }
+.tl.active .st { color: var(--sky-d);    background: #eaf3fc; }
+.tl.todo   .st { color: #64748b;         background: #eef1f5; }
+
+.legend { display: flex; gap: 18px; font-size: 0.58em; color: var(--sub); margin: 0.1em 0 0.45em; }
+.dot { display:inline-block; width: 0.7em; height: 0.7em; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.dot.done { background: var(--forest); } .dot.active { background: var(--sky); } .dot.todo { background: #cbd5e1; }
+.pbars { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; font-size: 0.64em; }
+.pbar { display: grid; grid-template-columns: 130px 1fr 42px; align-items: center; gap: 8px; }
+.pbar .name { color: var(--ink); font-weight: 600; }
+.pbar .track { display: block; background: #eef1f6; border-radius: 999px; height: 10px; overflow: hidden; }
+.pbar .fill { display: block; height: 100%; border-radius: 999px; background: var(--forest); }
+.pbar .fill.part { background: var(--sky); }
+.pbar .pct { color: var(--sub); text-align: right; font-variant-numeric: tabular-nums; }
+
+.foot { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center;
+  font-size: 0.48em; color: #aab4c0; }

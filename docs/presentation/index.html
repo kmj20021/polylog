@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polylog — AI 여행 동행자 · 발표</title>
+  <link rel="stylesheet" href="vendor/dist/reset.css">
+  <link rel="stylesheet" href="vendor/dist/reveal.css">
+  <link rel="stylesheet" href="vendor/dist/theme/white.css">
+  <link rel="stylesheet" href="css/custom.css">
+</head>
+<body>
+
+<!-- 지구·비행 상징 배경 (전 슬라이드 공통, 옅게) -->
+<div class="bg-motif" aria-hidden="true">
+  <svg viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid slice">
+    <!-- 지구 (우하단, 화면 밖으로 일부) -->
+    <g transform="translate(1000,560)" fill="none" stroke="#2b8de6" stroke-width="1.4" opacity="0.16">
+      <circle r="300"/>
+      <ellipse rx="300" ry="110"/>
+      <ellipse rx="300" ry="200"/>
+      <ellipse rx="110" ry="300"/>
+      <ellipse rx="210" ry="300"/>
+      <line x1="-300" y1="0" x2="300" y2="0"/>
+    </g>
+    <!-- 비행 경로 (대원 호) + 비행기 -->
+    <path d="M120,560 C 420,180 820,160 1180,360" fill="none" stroke="#2e9e5b"
+          stroke-width="2" stroke-dasharray="3 12" stroke-linecap="round" opacity="0.35"/>
+    <circle cx="120" cy="560" r="6" fill="#2e9e5b" opacity="0.5"/>
+    <g transform="translate(880,196) rotate(28)" fill="#2e9e5b" opacity="0.5">
+      <path d="M0,-11 L3,-1 L20,5 L20,9 L3,6 L2,15 L7,19 L7,22 L0,20 L-7,22 L-7,19 L-2,15 L-3,6 L-20,9 L-20,5 L-3,-1 Z"/>
+    </g>
+  </svg>
+</div>
+
+<div class="reveal">
+  <div class="slides">
+
+    <!-- ── 슬라이드 1: 타이틀 + 기획 (모티프 위 커버) ── -->
+    <section>
+      <div class="hero">
+        <div class="logo">Polylog</div>
+        <div class="tagline">AI 여행 동행자</div>
+        <div class="pitch">완벽한 여행을 위한 앱 <br> 잡일은 일은 <strong>AI</strong>가, 당신은 여행만.</div>
+      </div>
+      <div class="foot">12~15주차 PoC · github.com/kmj20021/polylog</div>
+    </section>
+
+    <!-- ── 슬라이드 2: 문제 정의 ── -->
+    <section>
+      <div class="panel">
+        <span class="kicker">PROBLEM</span>
+        <h2>여행자가 겪는 4가지 불편</h2>
+        <div class="grid4">
+          <div class="card">
+            <div class="num">01</div>
+            <div class="ttl">어디를 가야 할지 모르겠다</div>
+            <div class="desc">계획 단계의 막막함. → <strong>AI와 대화식</strong>으로 일정을 함께 설계.</div>
+            <span class="tag">서브3 · AI 일정</span>
+          </div>
+          <div class="card">
+            <div class="num">02</div>
+            <div class="ttl">갑작스런 차질 · 즉흥 탐색</div>
+            <div class="desc">GPS + Google Places로 원하는 카테고리를 찾고, <strong>원어민 리뷰를 AI가 분석</strong>.
+              <span class="flag">광고글 의심 표기</span>로 시간 절약.</div>
+            <span class="tag">메인 · 장소 추천</span>
+          </div>
+          <div class="card">
+            <div class="num">03</div>
+            <div class="ttl">외국어 메뉴판 해독 곤란</div>
+            <div class="desc">사진 한 장으로 번역. <span class="aspire">(지향) 음식 사진</span>으로 맛까지 예상.</div>
+            <span class="tag">서브1 · 메뉴판 번역</span>
+          </div>
+          <div class="card">
+            <div class="num">04</div>
+            <div class="ttl">지출 관리 · 방문지 정리 번거로움</div>
+            <div class="desc">영수증으로 <strong>방문 내역·지출 자동 기록</strong>.
+              <span class="aspire">(지향) 사진까지 더하면 추억 앨범</span>.</div>
+            <span class="tag">서브2 · 영수증 기록</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 슬라이드 3: 비전 ── -->
+    <section>
+      <div class="panel center">
+        <span class="kicker">KEYWORD</span>
+        <h2>문제 해결, 네 가지 핵심</h2>
+        <div class="keywords">
+          <div class="kw"><div class="k">맞춤 장소 추천</div><div class="d">GPS + 원어민 리뷰를 AI가 분석</div></div>
+          <div class="kw"><div class="k">대화형 AI 일정</div><div class="d">대화만으로 계획하고 즉석 수정</div></div>
+          <div class="kw"><div class="k">메뉴판 번역</div><div class="d">사진 한 장으로 외국어 해독</div></div>
+          <div class="kw"><div class="k">영수증 가계부</div><div class="d">지출·방문 내역 자동 기록</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 슬라이드 4: 솔루션 4기능 ── -->
+    <section>
+      <div class="panel center">
+        <span class="kicker">SOLUTION</span>
+        <h2>하나의 앱, 네 개의 AI 기능</h2>
+        <div class="solution">
+          <div class="main-feat">
+            <div class="ttl">메인 — AI 장소 추천</div>
+            <div class="desc">GPS + Google Places API + Bedrock(Claude) 개인화 큐레이션 (맛집·숙소·관광지·카페)</div>
+          </div>
+          <div class="sub3">
+            <div class="card"><div class="ttl">서브1 · 메뉴판 번역</div>
+              <div class="desc">Textract OCR → Translate → 추천 메뉴</div></div>
+            <div class="card"><div class="ttl">서브2 · 영수증 기록</div>
+              <div class="desc">AnalyzeExpense → 환율 환산 → 카테고리 분류</div></div>
+            <div class="card"><div class="ttl">서브3 · AI 일정 관리</div>
+              <div class="desc">대화형 추천 → 타임라인 자동 정렬</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 슬라이드 5: 아키텍처 (Mermaid) ── -->
+    <section>
+      <div class="panel">
+        <span class="kicker">ARCHITECTURE</span>
+        <h2>설계 — 아키텍처</h2>
+        <pre class="mermaid">
+flowchart TD
+  A["Flutter App<br/>Camera · GPS · Chat"] -->|"HTTPS + Google OAuth ID 토큰"| G
+  G["API Gateway (REST)<br/>+ fn-authorizer (JWKS 검증)"] --> R["fn-recommend"]
+  G --> M["fn-menu"]
+  G --> C["fn-receipt"]
+  G --> S["fn-schedule"]
+  R --> AI1["Bedrock · Google Places"]
+  M --> AI2["Textract · Translate · Bedrock"]
+  C --> AI3["Textract · Bedrock · 환율 API"]
+  S --> AI4["Bedrock · Google Places"]
+  AI1 & AI2 & AI3 & AI4 --> ST["S3 (미디어)"] & DB["DynamoDB (구조 데이터)"]
+  classDef app fill:#e8f3fb,stroke:#2b8de6,color:#16263d;
+  classDef gw  fill:#d7ebfa,stroke:#1e6fd6,color:#16263d;
+  classDef fn  fill:#eef6fd,stroke:#2b8de6,color:#16263d;
+  classDef ai  fill:#f1f4f8,stroke:#9aa7b6,color:#475569;
+  classDef store fill:#e7f6ed,stroke:#2e9e5b,color:#16263d;
+  class A app; class G gw; class R,M,C,S fn; class AI1,AI2,AI3,AI4 ai; class ST,DB store;
+        </pre>
+        <div class="diagram-caption">Lambda 6종(인가 포함) · AWS AI 3종 · 외부 API 2종 — 상시 서버 0대</div>
+      </div>
+    </section>
+
+    <!-- ── 슬라이드 6: WBS 진행 현황 (CSS 타임라인) ── -->
+    <section>
+      <div class="panel">
+        <span class="kicker">WBS · PROGRESS</span>
+        <h2>4주 진행 현황</h2>
+        <div class="timeline">
+          <div class="tl done">   <div class="wk">12주차</div><div class="th">아이디어 구상 · AWS 환경</div><span class="st">완료</span></div>
+          <div class="tl active"> <div class="wk">13주차</div><div class="th"> 앱 배포 테스트 · 메인 기능 </div><span class="st">진행중</span></div>
+          <div class="tl todo">   <div class="wk">14주차</div><div class="th">서브 기능 <br>(메뉴판 · 영수증 · 일정)</div><span class="st">예정</span></div>
+          <div class="tl todo">   <div class="wk">15주차</div><div class="th">최종 발표</div><span class="st">예정</span></div>
+        </div>
+        <div class="legend">
+          <span><span class="dot done"></span>완료</span>
+          <span><span class="dot active"></span>진행중</span>
+          <span><span class="dot todo"></span>예정</span>
+        </div>
+        <div class="pbars">
+          <div class="pbar"><span class="name">1.2 AWS 환경 구축</span><span class="track"><span class="fill part" style="width:70%"></span></span><span class="pct">70%</span></div>
+          <div class="pbar"><span class="name">1.3 앱 배포 테스트</span><span class="track"><span class="fill part" style="width:50%"></span></span><span class="pct">50%</span></div>
+          <div class="pbar"><span class="name">1.4 메인 추천(메뉴·장소)</span><span class="track"><span class="fill part" style="width:40%"></span></span><span class="pct">40%</span></div>
+          <div class="pbar"><span class="name">1.4 GPS 기반 기능</span><span class="track"><span class="fill part" style="width:35%"></span></span><span class="pct">35%</span></div>
+          <div class="pbar"><span class="name">1.5 메뉴판 번역</span><span class="track"><span class="fill part" style="width:0%"></span></span><span class="pct">0%</span></div>
+          <div class="pbar"><span class="name">1.6 영수증 기록</span><span class="track"><span class="fill part" style="width:0%"></span></span><span class="pct">0%</span></div>
+          <div class="pbar"><span class="name">1.7 AI 일정</span><span class="track"><span class="fill part" style="width:0%"></span></span><span class="pct">0%</span></div>
+          <div class="pbar"><span class="name">1.8 통합 테스트</span><span class="track"><span class="fill part" style="width:0%"></span></span><span class="pct">0%</span></div>
+        </div>
+        <div class="foot">전체 WBS: docs/wbs.md · 9개 작업 패키지 · Lambda 6종 · DynamoDB 7종</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script src="vendor/dist/reveal.js"></script>
+<script src="vendor/plugin/notes/notes.js"></script>
+<script src="vendor/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    securityLevel: 'loose',
+    fontFamily: '"Pretendard","Noto Sans KR",system-ui,sans-serif',
+    themeVariables: {
+      primaryColor: '#eef6fd', primaryBorderColor: '#2b8de6', primaryTextColor: '#16263d',
+      lineColor: '#9aa7b6', fontSize: '15px'
+    },
+    flowchart: { curve: 'basis', useMaxWidth: true }
+  });
+
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'slide',
+    width: 1280,
+    height: 720,
+    margin: 0.06,
+    controls: true,
+    progress: true,
+    plugins: [ RevealNotes ]
+  });
+
+  // Mermaid를 '보이는 슬라이드'에서만 렌더 → 숨겨진 슬라이드의 width=0 오류 방지
+  function renderMermaidIn(slide) {
+    if (!slide) return;
+    slide.querySelectorAll('pre.mermaid:not([data-rendered])').forEach(function (el, i) {
+      var code = el.textContent;
+      var id = 'mmd-' + Date.now() + '-' + i;
+      mermaid.render(id, code).then(function (res) {
+        el.innerHTML = res.svg;
+        el.setAttribute('data-rendered', '1');
+      }).catch(function (e) { console.error('Mermaid render error:', e); });
+    });
+  }
+  Reveal.on('ready', function (e) { renderMermaidIn(e.currentSlide); });
+  Reveal.on('slidechanged', function (e) { renderMermaidIn(e.currentSlide); });
+</script>
+</body>
+</html>
