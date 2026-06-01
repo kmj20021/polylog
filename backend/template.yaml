@@ -32,6 +32,8 @@ Resources:
       Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
       CodeUri: src/handlers/health/
       Handler: app.lambda_handler
+      Tags:
+        group: polylog
       Events:
         Get:
           Type: Api
