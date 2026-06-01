@@ -48,6 +48,27 @@ Resources:
             Path: /health
             Method: get
 
+  # AI 장소 추천 — Bedrock Claude 3 Haiku(us-east-1) 호출.
+  # Bedrock 응답 대기를 위해 Timeout 30초로 Globals(10초) 오버라이드.
+  FnRecommend:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: polylog-fn-recommend
+      # ★ ADR-012: 공용 실행 역할 재사용(iam:CreateRole 차단).
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
+      CodeUri: src/handlers/recommend/
+      Handler: app.lambda_handler
+      Timeout: 30
+      Tags:
+        group: polylog
+      Events:
+        Post:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PolylogApi
+            Path: /recommend
+            Method: post
+
 Outputs:
   ApiUrl:
     Description: 헬스체크 기본 URL (뒤에 /health 를 붙여 호출)
@@ -55,3 +76,6 @@ Outputs:
   HealthUrl:
     Description: 헬스체크 엔드포인트 (curl 대상)
     Value: !Sub https://${PolylogApi}.execute-api.${AWS::Region}.amazonaws.com/dev/health
+  RecommendUrl:
+    Description: AI 장소 추천 엔드포인트 (POST)
+    Value: !Sub https://${PolylogApi}.execute-api.${AWS::Region}.amazonaws.com/dev/recommend

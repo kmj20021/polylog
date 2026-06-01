@@ -1,13 +1,8 @@
 import 'package:flutter/material.dart';
-import 'features/auth/auth_screen.dart';
-import 'features/recommend/recommend_screen.dart';
-import 'features/menu/menu_screen.dart';
-import 'features/receipt/receipt_screen.dart';
-import 'features/schedule/schedule_screen.dart';
 
-void main() {
-  runApp(const PolylogApp());
-}
+import 'features/recommend/recommend_screen.dart';
+
+void main() => runApp(const PolylogApp());
 
 class PolylogApp extends StatelessWidget {
   const PolylogApp({super.key});
@@ -15,46 +10,87 @@ class PolylogApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Polylog',
+      title: 'polylog',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4A90D9)),
+        colorSchemeSeed: const Color(0xFF3B6FB6),
         useMaterial3: true,
       ),
-      home: const AuthScreen(),
+      home: const HomeShell(),
     );
   }
 }
 
-class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+/// 4탭 하단 내비게이션 셸. index 1 이 AI 추천 화면이다.
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key});
 
   @override
-  State<MainShell> createState() => _MainShellState();
+  State<HomeShell> createState() => _HomeShellState();
 }
 
-class _MainShellState extends State<MainShell> {
-  int _selectedIndex = 0;
+class _HomeShellState extends State<HomeShell> {
+  int _index = 1;
 
-  static const List<Widget> _screens = [
+  static const _tabs = <Widget>[
+    _PlaceholderTab(title: '홈', icon: Icons.home_outlined),
     RecommendScreen(),
-    MenuScreen(),
-    ReceiptScreen(),
-    ScheduleScreen(),
+    _PlaceholderTab(title: '여행', icon: Icons.map_outlined),
+    _PlaceholderTab(title: '내 정보', icon: Icons.person_outline),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _screens[_selectedIndex],
+      body: IndexedStack(index: _index, children: _tabs),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        selectedIndex: _index,
+        onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.explore), label: '추천'),
-          NavigationDestination(icon: Icon(Icons.restaurant_menu), label: '메뉴판'),
-          NavigationDestination(icon: Icon(Icons.receipt_long), label: '영수증'),
-          NavigationDestination(icon: Icon(Icons.calendar_month), label: '일정'),
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: '홈',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.auto_awesome_outlined),
+            selectedIcon: Icon(Icons.auto_awesome),
+            label: '추천',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map),
+            label: '여행',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: '내 정보',
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _PlaceholderTab extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  const _PlaceholderTab({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 64, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(height: 12),
+            Text('$title 화면 (준비 중)'),
+          ],
+        ),
       ),
     );
   }
