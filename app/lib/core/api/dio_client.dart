@@ -20,7 +20,7 @@ class DioClient {
   factory DioClient() => _instance;
 
   static const String baseUrl =
-      'https://93yxt977xl.execute-api.ap-northeast-2.amazonaws.com/dev';
+      'https://mvlllsq6xj.execute-api.ap-northeast-2.amazonaws.com/dev';
 
   late final Dio _dio;
 
