@@ -58,8 +58,9 @@ deploy_lambda() {
 
     log "Lambda: $FUNC_NAME"
 
-    if aws lambda get-function --function-name "$FUNC_NAME" \
-         --region "$REGION" --output text --query 'Configuration.State' &>/dev/null; then
+    if aws lambda list-functions --region "$REGION" \
+         --query "Functions[?FunctionName=='$FUNC_NAME'].FunctionName" \
+         --output text 2>/dev/null | grep -q "$FUNC_NAME"; then
         # 기존 함수 — 코드만 교체
         log "  코드 업데이트"
         aws lambda update-function-code \
@@ -85,7 +86,8 @@ deploy_lambda() {
           --region "$REGION" --output text --query 'FunctionArn' > /dev/null
 
         warn "  AutoTagging-Function 대기 중 (group=polylog 태그)..."
-        until aws lambda get-function --function-name "$FUNC_NAME" \
+        until aws lambda list-tags \
+            --resource "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${FUNC_NAME}" \
             --region "$REGION" --query 'Tags.group' --output text 2>/dev/null \
             | grep -q "polylog"; do
           sleep 5
@@ -118,9 +120,12 @@ deploy_lambda "polylog-fn-health" \
   "$(get_s3_key FnHealth)" \
   "app.lambda_handler" 10 128
 
+deploy_lambda "polylog-fn-recommend" \
+  "$(get_s3_key FnRecommend)" \
+  "app.lambda_handler" 30 128
+
 # 추후 추가 예시:
 # deploy_lambda "polylog-fn-authorizer" "$(get_s3_key FnAuthorizer)" "app.lambda_handler" 10 128
-# deploy_lambda "polylog-fn-recommend"  "$(get_s3_key FnRecommend)"  "app.lambda_handler" 30 256
 
 # ────────────────────────────────────────────
 # 6. API Gateway 재배포 (스테이지 갱신)
