@@ -10,6 +10,20 @@
 
 ---
 
+## 4주 마일스톤 개요
+
+> `schedule.md`에서 발췌한 상위 마일스톤 골격(원본 일자별 상세·간트는 `archive/schedule.md`).
+> ⚠️ 원본 schedule.md의 인프라 세부(Cognito·CloudFront·IAM 역할 4종)는 ADR-007/008/012로 대체된 **구버전**이므로 발췌에서 제외함.
+
+| 주차 | 테마 | 발표 |
+|---|---|---|
+| 12주차 | AWS 환경 + Flutter 기반 + 메인(AI 장소 추천) E2E | **중간발표** |
+| 13주차 | 서브1(메뉴판 번역) + 서브2(영수증 기록) | — |
+| 14주차 | 서브3(AI 일정 관리) + 4기능 통합 테스트 | — |
+| 15주차 | 안정화 + 발표 준비 (시험기간 포함) | **최종발표** |
+
+---
+
 ## 변경 이력
 
 | 일자 | 버전 | 변경 내용 |
@@ -83,11 +97,11 @@
 | 1.2.4.2 | Lambda 헬스체크 함수(fn-health) 배포 및 연결 테스트 | fn-health | 1.2.4.1 | LF-1 |
 | 1.2.4.3 | SAM 템플릿 초기 구성 (`Globals.Function.Role`=SafeRole-polylog) + 배포 버킷 `polylog-sam-deploy` 선생성 + CloudShell `sam deploy` | template.yaml | 1.2.4.1 | TR-DEV1 |
 | **1.2.5** | **인증 구성 (소셜 OAuth)** | | | |
-| 1.2.5.1 | Google/Kakao OAuth 클라이언트 등록 (redirect URI 설정) | OAuth 앱 등록 | — | TR-INF5, NFR-S3 |
+| 1.2.5.1 | Google OAuth 클라이언트 등록 (Android, redirect URI 설정) | OAuth 앱 등록 | — | TR-INF5, NFR-S3 |
 | 1.2.5.2 | `fn-authorizer` Lambda 구현 — 소셜 ID 토큰 JWKS 검증 (무상태) | 인가 Lambda | 1.2.4.1 | NFR-S4, LF-6 |
 | 1.2.5.3 | API Gateway Lambda Authorizer 연결 (`fn-authorizer`) | Authorizer | 1.2.5.2, 1.2.4.1 | NFR-S4 |
 | **1.2.6** | **AI 서비스 사전 설정** | | | |
-| 1.2.6.1 | Bedrock 모델 액세스 확인 (us-east-1, 관리자 승인) | 모델 액세스 | 1.2.1.1 | TR-AI1, CON-3 |
+| 1.2.6.1 | Bedrock 모델 액세스 확인 (us-east-1, 자동 활성화 — 2026-06-01 claude-3-haiku 실호출 확인) | 모델 액세스 | 1.2.1.1 | TR-AI1, CON-3 |
 
 ---
 
@@ -97,15 +111,15 @@
 |---|---|---|---|---|
 | **1.3.1** | **프로젝트 초기화** | | | |
 | 1.3.1.1 | Flutter 프로젝트 생성 (Dart) | 프로젝트 스켈레톤 | — | TR-CLI1, TR-CLI2 |
-| 1.3.1.2 | 의존성 설정 (camera, dio, sqflite, geolocator, google_sign_in, kakao_flutter_sdk) | pubspec.yaml | 1.3.1.1 | TR-CLI3~7 |
+| 1.3.1.2 | 의존성 설정 (camera, dio, sqflite, geolocator, google_sign_in) | pubspec.yaml | 1.3.1.1 | TR-CLI3~7 |
 | 1.3.1.3 | 패키지 구조 설계 (feature 기반) | 패키지 구조 | 1.3.1.1 | — |
 | **1.3.2** | **공통 UI 구축** | | | |
 | 1.3.2.1 | 메인 네비게이션 구현 (4탭: 추천·메뉴판·영수증·일정) | 네비게이션 | 1.3.1.1 | NFR-U2 |
 | 1.3.2.2 | 공통 UI 컴포넌트 (카드, 로딩, 에러 상태) | UI 컴포넌트 | 1.3.2.1 | NFR-U4 |
 | 1.3.2.3 | 테마 및 디자인 시스템 적용 (Material Design 3) | 테마 설정 | 1.3.2.1 | NFR-U4 |
 | **1.3.3** | **인증 화면 (소셜 로그인)** | | | |
-| 1.3.3.1 | 소셜 로그인 화면 구현 (Google/Kakao 버튼) | 로그인 UI | 1.3.2.1 | NFR-S3 |
-| 1.3.3.2 | google_sign_in / kakao_flutter_sdk OAuth 연동 → ID 토큰 획득 | 인증 흐름 | 1.3.3.1, 1.2.5.1 | TR-CLI7 |
+| 1.3.3.1 | 소셜 로그인 화면 구현 (Google 버튼) | 로그인 UI | 1.3.2.1 | NFR-S3 |
+| 1.3.3.2 | google_sign_in OAuth 연동 → ID 토큰 획득 | 인증 흐름 | 1.3.3.1, 1.2.5.1 | TR-CLI7 |
 | 1.3.3.3 | 토큰 보관·갱신 및 로그아웃 처리 | 세션 관리 | 1.3.3.2 | NFR-S3 |
 | **1.3.4** | **공통 인프라 모듈** | | | |
 | 1.3.4.1 | dio API 클라이언트 구성 (소셜 ID 토큰 자동 첨부) | API 클라이언트 | 1.3.3.2, 1.2.4.1 | TR-CLI5 |
@@ -289,6 +303,6 @@ Bedrock 프롬프트 설계가 전체 일정의 크리티컬 패스. 메인(1.4)
 | 1.5 (메뉴판) | 비정형 메뉴판 OCR 정확도 | 중 | 촬영 가이드라인 UI로 품질 유도 |
 | 1.7 (AI 일정) | 대화 컨텍스트 관리 복잡도 | 중 | 최근 10개 메시지로 컨텍스트 윈도우 제한 |
 | 1.2~1.3 (환경 구축) | Flutter + AWS 초기 설정 지연 | 중 | 12주차에 환경 구축과 메인 기능을 병행 |
-| 1.2.5·1.3.3 (인증) | 소셜 OAuth redirect URI/JWKS 검증 설정 오류 | 중 | Google/Kakao 콘솔 설정 1회 수동 검증 후 코드화, `fn-authorizer` 단위 토큰 검증 테스트 |
+| 1.2.5·1.3.3 (인증) | 소셜 OAuth redirect URI/JWKS 검증 설정 오류 | 중 | Google 콘솔 설정 1회 수동 검증 후 코드화, `fn-authorizer` 단위 토큰 검증 테스트 |
 | 1.2.4 (배포) | Access Key 미발급 → 로컬 SAM 불가, CloudShell 전용 디버깅 | 중 | 단위 로직은 PoC 스크립트로 선검증, 통합은 배포 후 실환경 확인 |
 | 전체 | 4주 일정 내 완성 실패 | 상 | 메인 기능 우선 완성 → 서브 기능 순차 진행. 최악 시 서브3 축소 |

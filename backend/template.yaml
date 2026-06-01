@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  polylog-backend — Phase 3 첫 배포 (fn-health).
+  공용 실행 역할 SafeRole-polylog 강제(ADR-012), iam:CreateRole 미사용.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 10
+    MemorySize: 128
+    Tracing: Active
+    # ★ ADR-012: iam:CreateRole 차단 → 공용 역할을 모든 함수에 강제 주입
+    Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
+
+Resources:
+  # REST API. Authorizer는 Phase 4 인증 작업에서 활성화 — 지금은 NONE.
+  PolylogApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: polylog-api
+      StageName: dev
+      TracingEnabled: true
+
+  # 첫 Lambda — 배포 파이프라인 자체를 검증하는 헬스체크.
+  # FunctionName을 명시해 'polylog' prefix 강제 규칙을 보장.
+  FnHealth:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: polylog-fn-health
+      CodeUri: src/handlers/health/
+      Handler: app.lambda_handler
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PolylogApi
+            Path: /health
+            Method: get
+
+Outputs:
+  ApiUrl:
+    Description: 헬스체크 기본 URL (뒤에 /health 를 붙여 호출)
+    Value: !Sub https://${PolylogApi}.execute-api.${AWS::Region}.amazonaws.com/dev
+  HealthUrl:
+    Description: 헬스체크 엔드포인트 (curl 대상)
+    Value: !Sub https://${PolylogApi}.execute-api.${AWS::Region}.amazonaws.com/dev/health

@@ -1,0 +1,6 @@
+# fn-health 는 표준 라이브러리(json)만 사용 → 의존성 없음.
+#
+# Phase 4 fn-authorizer(Google JWKS 검증) 구현 시 아래를 활성화 예정:
+# PyJWT
+# cryptography
+# requests

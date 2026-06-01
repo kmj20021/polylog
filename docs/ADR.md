@@ -17,6 +17,7 @@
 | 2026-05-26 | 2.0.1 | ADR-001에 사용 패턴 분석(세션 길이≠요청 빈도) 및 서버리스 재검토 트리거 조건 추가 |
 | 2026-05-26 | 2.0.2 | 리뷰 피드백 반영 — ADR-008 CloudFront 철회(S3 Presigned URL로 대체), ADR-006 Secrets Manager 옵션 철회(Lambda 환경변수로 일원화) |
 | 2026-05-27 | 2.0.3 | 관리자 IAM 발급 가이드(`polylog-iam-guide.md`) 반영 — Cognito 미제공으로 ADR-007 대체(소셜 OAuth + 무상태 Lambda Authorizer), 공용 실행 역할 ADR-012·자원 네이밍/CloudShell 배포 ADR-013 신설, ADR-001(역할 모델)·ADR-008(CloudFront 차단 확정)·ADR-010(로컬 SAM 제약) 갱신, Lambda 5종→6종 |
+| 2026-06-01 | 2.0.4 | Phase 1 점검 결과 반영 — ADR-007 provider 범위를 **Google 단독·Android 전용**으로 확정(Kakao 보류). `fn-authorizer`는 Google JWKS만 검증, Flutter 타깃 `android` 단일. |
 
 ---
 
@@ -30,7 +31,7 @@
 | ADR-004 | Amazon Bedrock (Claude)을 종합 AI 엔진으로 채택 | 승인 | AI 처리 계층 |
 | ADR-005 | AWS AI 서비스 3종 "깊이 우선" 전략 | 승인 | AI 처리 계층 |
 | ADR-006 | Google Places API를 POI 데이터 소스로 채택 | 승인 | 장소 추천·일정 기능 |
-| ADR-007 | 소셜 OAuth(Google/Kakao) 인증 (Cognito 대체, 2026-05-27 갱신) | 대체 | 인증·인가 |
+| ADR-007 | 소셜 OAuth(Google 단독) 인증 (Cognito 대체, 2026-06-01 범위 확정) | 대체 | 인증·인가 |
 | ADR-008 | S3 미디어 저장 전략 (CloudFront 철회, 2026-05-26 갱신) | 승인 | 미디어 계층 |
 | ADR-009 | Bedrock Cross-Region 호출 (us-east-1) | 승인 | 네트워크·성능 |
 | ADR-010 | AWS SAM을 IaC 도구로 선정 | 승인 | 배포·운영 |
@@ -62,7 +63,7 @@
 - fn-menu: 메뉴판 OCR + 번역 + 추천 (Textract + Translate + Bedrock)
 - fn-receipt: 영수증 OCR + 가계부 (Textract + Bedrock + 환율 API)
 - fn-schedule: 대화형 일정 관리 (Google Places + Bedrock)
-- fn-authorizer: API Gateway Lambda Authorizer — 소셜 OAuth(Google/Kakao) ID 토큰을 provider JWKS로 검증 (무상태, ADR-007)
+- fn-authorizer: API Gateway Lambda Authorizer — Google OAuth ID 토큰을 Google JWKS로 검증 (무상태, ADR-007 / Kakao 보류)
 
 ### 근거 (Rationale)
 
@@ -414,6 +415,28 @@ PoC 프로젝트로 소셜 로그인(Google, Kakao 등)은 범위 밖이다. 이
 
 > 관련 문서: `polylog-iam-guide.md` §"Cognito는 제공하지 않습니다".
 
+### 갱신 (2026-06-01) — provider 범위 Google 단독·Android 전용 확정
+
+> Phase 1(외부 의존성 트리거) 점검에서 실제 등록 상태를 확인한 결과, OAuth 클라이언트는 **Google(Android 전용) 1종만** 발급되어 있다. 4주 PoC·1인 개발(CON-6) 범위에서 provider를 하나로 좁혀 인증 트랙 공수를 줄이는 결정을 확정한다.
+
+**결정**
+
+- 인증 provider는 **Google 단독**. Kakao는 보류(필요 시 후속 ADR로 재개 — provider별 JWKS·redirect만 추가하면 되는 무상태 구조라 후행 추가 비용 낮음).
+- 클라이언트는 `google_sign_in`만 사용. `kakao_flutter_sdk` 의존성 제거.
+- 타깃 플랫폼은 **Android 전용**(`flutter create --platforms=android`). iOS는 범위 밖.
+- `fn-authorizer`는 **Google JWKS(`https://www.googleapis.com/oauth2/v3/certs`) 검증만** 구현. `iss=accounts.google.com`(또는 `https://accounts.google.com`)·`aud=Google 클라이언트 ID` 확인.
+
+**근거**
+
+- 두 provider 동시 지원은 JWKS·iss·aud 분기와 콘솔 설정을 2배로 늘리나, PoC 시연에는 로그인 경로 하나면 충분(Premature optimization 회피 — ADR-007 원 철회 사유와 동일 논리).
+- Android 전용은 에뮬레이터 단일 환경으로 E2E 관통(Phase 4) 검증을 단순화.
+
+**영향**
+
+- `fn-authorizer` 구현 범위 축소(Google JWKS 단일 경로).
+- Exit State #5·#6, bootstrap-plan §1.2·§4.1이 Google·Android로 정정됨(동기화 완료).
+- 보류 항목: Kakao OAuth, iOS 빌드.
+
 ---
 
 ## ADR-008: S3 + CloudFront 미디어 저장 전략
@@ -704,3 +727,113 @@ Globals:
 - 팀 4명이 같은 네임스페이스를 공유하므로 이름 충돌 방지 컨벤션 필요(앱 개발 자체는 1인 — CON-6).
 
 > 관련 문서: `polylog-iam-guide.md` §"S3 / DynamoDB — 이름은 반드시 polylog로 시작", §"격리 모델".
+
+---
+
+## ADR-014: 일정 테이블 단일화 (schedules + schedule-items 통합)
+
+| 항목 | 내용 |
+|---|---|
+| **상태** | 승인 |
+| **일자** | 2026-05-31 |
+| **영향 범위** | DynamoDB `polylog-schedules`, `fn-schedule` Lambda, Flutter 일정 탭 |
+| **관련 요구사항** | FR-S3.1~S3.5, DR-7, NFR-P4 |
+
+### 맥락 (Context)
+
+Phase 2.3에서 일정 테이블을 `polylog-schedules`(헤더, PK=schedule_id) + `polylog-schedule-items`(상세, PK=item_id) 두 개로 분리 생성했다. 그러나 (1) 두 테이블 모두 PK가 standalone UUID여서 어느 여행 소속인지 키로 표현되지 않고, (2) FR-S3.4(타임라인 뷰)·FR-S3.5(컨텍스트 재추천)가 모두 "한 여행의 모든 일정을 한 번에 조회"하는 패턴이라 분리는 매 호출 2 round-trip 또는 GSI 추가 비용을 발생시킨다.
+
+### 결정 (Decision)
+
+**`polylog-schedule-items`를 삭제**하고 **`polylog-schedules` 단일 테이블로 재설계**한다. 키 구조는 PK=`trip_id` (HASH), SK=`start_time` (RANGE, ISO 8601 문자열). 기존 `schedule_id`는 일반 속성으로 강등하여 외부 참조(예: ChatMessage → Schedule 링크) 용도로만 사용한다.
+
+### 근거 (Rationale)
+
+- DynamoDB는 "함께 조회되는 데이터는 같은 파티션에"가 원칙(NoSQL anti-normalization). 헤더만/디테일만 따로 보는 화면이 기획에 없다.
+- 데이터 규모가 작다 — PoC 시나리오 기준 1여행 3~7일×5~10항목 = 30~70 row, 분리 이득 없음.
+- SK를 시간으로 두면 `Query`가 자동 시간순 정렬을 반환하여 정렬 로직을 클라이언트에서 제거할 수 있다.
+- 분리를 유지해도 현재 두 테이블의 standalone-UUID PK는 어차피 재설계해야 하므로, 통합으로 가는 비용이 절감 비용보다 크지 않다.
+
+### 결과 (Consequences)
+
+**긍정적**
+- 타임라인 뷰가 단일 `Query` 호출로 끝나 NFR-P4(4초) 여유 확보.
+- 트랜잭션 일관성 단순화 — 일정 추가 시 한 테이블만 쓰면 됨.
+- 스키마가 polylog-plan.md 원안(7장 Schedule)과 일치.
+
+**부정적**
+- 만약 향후 일정 헤더(일별 요약, 날씨 등)가 추가되면 같은 파티션에 다른 타입 row를 섞거나(SK prefix로 구분, single-table design) 추가 테이블로 분리하는 재결정이 필요. 현 PoC 범위에서는 불필요.
+
+### 적용 절차
+
+1. CloudShell: `aws dynamodb delete-table --table-name polylog-schedule-items`
+2. CloudShell: `aws dynamodb delete-table --table-name polylog-schedules`
+3. CloudShell: `archive/mk_DynamoDB_logic.md` #2 명령으로 `polylog-schedules` 재생성
+4. `polylog-plan.md` 7장 Schedule 엔티티 정의 동기화 (완료)
+
+> 관련 문서: `archive/mk_DynamoDB_logic.md` §"2. 여행 일정 서랍장", `polylog-plan.md` §7.2 Schedule.
+
+---
+
+## ADR-015: 도메인 4종 테이블 trip_id 파티션 통일 (recommendations / menus / receipts / chats)
+
+| 항목 | 내용 |
+|---|---|
+| **상태** | 승인 |
+| **일자** | 2026-05-31 |
+| **영향 범위** | DynamoDB `polylog-recommendations`, `polylog-menus`, `polylog-receipts`, `polylog-chats` 및 대응 Lambda 4종(`fn-recommend`, `fn-menu`, `fn-receipt`, `fn-schedule`) |
+| **관련 요구사항** | FR-M.6, FR-S1, FR-S2.4, FR-S3.1, DR-3·DR-5·DR-6·DR-8, NFR-P1~P4 |
+
+### 맥락 (Context)
+
+Phase 2.3 초기 생성 시 4개 도메인 테이블이 모두 **PK=standalone-UUID**(`recommend_id`, `menu_id`, `receipt_id`, `chat_id`) 구조로 만들어졌다. 이 구조에서는 "어느 여행 소속인지"가 키로 표현되지 않아 사실상 매 조회가 `Scan`이 된다. ADR-014에서 `polylog-schedules`에 대해 동일한 문제를 해결한 뒤, 나머지 4개도 같은 구조적 결함을 안고 있음이 확인됐다.
+
+요구사항 분석 결과 4개 모두 **"여행 단위 시간순 조회"가 1차 액세스 패턴**이다:
+- FR-M.6 추천 이력 — 한 여행의 추천 누적 조회
+- FR-S1 메뉴판 — 한 여행 중 분석한 메뉴판 이력
+- FR-S2.4 일별·카테고리별 지출 — 한 여행의 결제 시각순 정렬
+- FR-S3.1 대화 컨텍스트 — 한 여행의 메시지를 Bedrock 호출 직전 시간순 일괄 로드
+
+### 결정 (Decision)
+
+4개 테이블을 모두 삭제 후 **PK=`trip_id` (HASH) + SK=시간 속성 (RANGE, ISO 8601)** 합성키로 재생성한다. 기존 standalone UUID PK는 일반 속성으로 강등하여 외부 참조용으로만 보존한다.
+
+| 테이블 | PK | SK | SK 시간 속성 선택 사유 |
+|---|---|---|---|
+| `polylog-recommendations` | `trip_id` | `created_at` | 추천 발생 시각 — 누적 이력 |
+| `polylog-menus` | `trip_id` | `created_at` | 촬영 시점 — 시간순 정렬 |
+| `polylog-receipts` | `trip_id` | `occurred_at` | 결제 시각 — "일별 지출" 정렬 직접 충족 |
+| `polylog-chats` | `trip_id` | `created_at` | 메시지 시각 — 대화 순서 보장 |
+
+### 근거 (Rationale)
+
+- **ADR-014와 동일한 NoSQL 원칙 재적용** — "함께 조회되는 데이터는 같은 파티션에". 4개 도메인 모두 trip 단위 일괄 조회가 핵심.
+- **Lambda 코드가 안정된 스키마 위에 작성되어야 함** — Phase 3 이후 `fn-recommend`/`fn-menu`/`fn-receipt`/`fn-schedule`이 본격 구현되기 전에 키 구조를 확정해야 두 번 만들지 않는다.
+- **시간 SK 선택은 1차 액세스 패턴에 정렬 비용 0으로 응답** — `Query` 결과가 자동 정렬되어 클라이언트 정렬 로직 제거.
+- **데이터 0건 상태에서 적용** — 마이그레이션 비용 없음. 지금이 가장 싼 변경 시점.
+
+### 결과 (Consequences)
+
+**긍정적**
+- 모든 도메인 조회가 `Query` 한 번으로 종료 → NFR-P1~P4 응답 시간 여유.
+- 4개 테이블 키 패턴이 통일되어 Lambda 코드의 DynamoDB 호출 모양이 일관됨.
+- 카테고리 GSI(receipts), place_id 역인덱스(recommendations) 같은 후속 보강은 키 변경 없이 GSI 추가만으로 가능.
+
+**부정적**
+- `trip_id` 없이 단건만 알고 있는 경우(예: 외부 URL로 단일 메뉴 공유) `GetItem`을 직접 호출할 수 없음 → 운영상 그런 패턴이 등장하면 `id-index` GSI를 별도로 추가해야 함. 현 PoC 범위에서는 불필요.
+- `receipts`의 카테고리별 집계는 데이터가 커지면 클라이언트 그룹화로 한계 → `category-index` GSI 추가 결정이 후속으로 필요할 수 있음 (현 PoC 규모에서는 보류).
+
+### 적용 절차
+
+1. CloudShell: 기존 4개 테이블 삭제
+   ```bash
+   aws dynamodb delete-table --table-name polylog-recommendations --region ap-northeast-2
+   aws dynamodb delete-table --table-name polylog-menus           --region ap-northeast-2
+   aws dynamodb delete-table --table-name polylog-receipts        --region ap-northeast-2
+   aws dynamodb delete-table --table-name polylog-chats           --region ap-northeast-2
+   ```
+2. CloudShell: `archive/mk_DynamoDB_logic.md` #3~#6 명령으로 4개 재생성.
+3. 검증: `aws dynamodb list-tables`(7개 유지) + 각 테이블 `describe-table --query 'Table.KeySchema'`로 `trip_id`(HASH) + 시간(RANGE) 확인.
+4. `polylog-plan.md` §7.2 Recommendation / Menu / Expense / ChatMessage 엔티티 정의 동기화 (완료).
+
+> 관련 문서: `archive/mk_DynamoDB_logic.md` §"3~6", `polylog-plan.md` §7.2 Recommendation/Menu/Expense/ChatMessage. ADR-014와 같은 결정 패턴의 4개 도메인 일괄 적용판.

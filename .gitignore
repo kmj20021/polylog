@@ -1,0 +1,29 @@
+# === Python / Lambda ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# === AWS SAM ===
+.aws-sam/
+
+# === Flutter (Phase 4) ===
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+
+# === 비밀정보 — 절대 커밋 금지 ===
+# 외부 API 키(Places, ExchangeRate), OAuth 시크릿은 Lambda 환경변수/파라미터로만 주입(ADR-006)
+**/.env
+**/.env.*
+**/google-services.json
+**/GoogleService-Info.plist
+*.keystore
+*.jks
+
+# === OS / IDE ===
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

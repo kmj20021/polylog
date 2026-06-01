@@ -1,0 +1,20 @@
+# SAM 배포 설정 (ADR-013) — 값이 채워져 있어 첫 배포도 `sam deploy` 만으로 가능.
+# 단, 처음 1회는 `sam deploy --guided`로 대화형 확인을 권장(이후엔 이 파일이 기준).
+# s3_bucket: Phase 2.2에서 미리 만든 배포 산출물 버킷(prefix 위반 회피 위해 직접 생성).
+version = 0.1
+
+[default.global.parameters]
+stack_name = "polylog-backend"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+stack_name = "polylog-backend"
+s3_bucket = "polylog-sam-deploy"
+s3_prefix = "polylog-backend"
+region = "ap-northeast-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = false

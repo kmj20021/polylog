@@ -114,7 +114,7 @@
 |---|---|
 | NFR-S1 | 사진·영수증 파일 S3 SSE(Server-Side Encryption) 암호화 |
 | NFR-S2 | IAM 권한 격리 — 공용 실행 역할 `SafeRole-polylog` + `polylog` prefix·`group` 태그 기반 자원 격리 (함수별 역할 분리는 운영 단계 재검토, ADR-012) |
-| NFR-S3 | 소셜 OAuth(Google/Kakao) 기반 사용자 인증 — Flutter 클라이언트 직접 연동 (ADR-007) |
+| NFR-S3 | 소셜 OAuth(Google 단독) 기반 사용자 인증 — Flutter 클라이언트 직접 연동 (ADR-007, 2026-06-01 Kakao 보류) |
 | NFR-S4 | API Gateway Lambda Authorizer(`fn-authorizer`)로 소셜 ID 토큰을 provider JWKS 검증, 인증된 요청만 허용 |
 
 ### 2.4 사용성 (Usability)
@@ -161,7 +161,7 @@
 | TR-INF2 | Amazon API Gateway | REST API 엔드포인트 + Lambda Authorizer 인가 |
 | TR-INF3 | Amazon S3 | 사진·영수증 미디어 저장 (`polylog` prefix 버킷) |
 | TR-INF4 | Amazon DynamoDB | 구조화 데이터 저장 (`polylog` prefix 테이블) |
-| TR-INF5 | 소셜 OAuth (Google/Kakao) | 사용자 인증 — 클라이언트 직접 연동, AWS 인증 서비스(Cognito) 미사용 (ADR-007) |
+| TR-INF5 | 소셜 OAuth (Google 단독) | 사용자 인증 — 클라이언트 직접 연동, AWS 인증 서비스(Cognito) 미사용 (ADR-007 / Kakao 보류) |
 | TR-INF6 | ~~Amazon CloudFront~~ (미사용·플랫폼 차단) | 사진 조회는 S3 Presigned URL로 대체 (ADR-008) |
 | TR-INF7 | Amazon CloudWatch | 로그·메트릭 모니터링 |
 
@@ -182,7 +182,7 @@
 | TR-CLI4 | 위치 | geolocator 패키지 | GPS 좌표 수집 |
 | TR-CLI5 | 네트워크 | dio | REST API 통신 |
 | TR-CLI6 | 로컬 DB | sqflite | 오프라인 큐잉 |
-| TR-CLI7 | 인증 | google_sign_in / kakao_flutter_sdk | 소셜 OAuth 연동 → ID 토큰 |
+| TR-CLI7 | 인증 | google_sign_in | 소셜 OAuth(Google) 연동 → ID 토큰 (Kakao 보류) |
 
 ### 3.5 개발·운영 도구
 
@@ -259,7 +259,7 @@ Trip (1) ── (N) ChatMessage
 | LF-3 | fn-menu | 메뉴판 OCR + 번역 + 추천 | API Gateway | 4~6초 | Textract, Translate, Bedrock | — |
 | LF-4 | fn-receipt | 영수증 OCR + 가계부 | API Gateway | 3~4초 | Textract, Bedrock | ExchangeRate-API |
 | LF-5 | fn-schedule | 대화형 일정 관리 | API Gateway | 2~4초 | Bedrock | Google Places |
-| LF-6 | fn-authorizer | 소셜 OAuth ID 토큰 JWKS 검증 (무상태) | API Gateway Authorizer | <1초 | — | Google/Kakao JWKS |
+| LF-6 | fn-authorizer | 소셜 OAuth ID 토큰 JWKS 검증 (무상태) | API Gateway Authorizer | <1초 | — | Google JWKS |
 
 ### IAM 실행 역할 (공용 SafeRole-polylog)
 
@@ -292,7 +292,7 @@ Trip (1) ── (N) ChatMessage
 |---|---|---|---|---|---|
 | RISK-LIB1 | Flutter Widgets | Flutter UI 구성 | 미경험 | 상 | TR-CLI2 |
 | RISK-LIB2 | camera 패키지 | 메뉴판·영수증 촬영 | 미경험 | 중 | TR-CLI3, FR-S1.1, FR-S2.1 |
-| RISK-LIB3 | google_sign_in / kakao_flutter_sdk | 소셜 OAuth 로그인 연동 | 미경험 | 중 | TR-CLI7, NFR-S3 |
+| RISK-LIB3 | google_sign_in | 소셜 OAuth(Google) 로그인 연동 | 미경험 | 중 | TR-CLI7, NFR-S3 |
 | RISK-LIB4 | sqflite | 로컬 큐잉 및 동기화 | 미경험 | 중 | TR-CLI6, NFR-A2 |
 | RISK-LIB5 | dio | REST API 통신 | 미경험 | 중 | TR-CLI5 |
 | RISK-LIB6 | AWS SAM (IaC) | Lambda·API Gateway 배포 자동화 | 미경험 | 중 | TR-DEV1 |
@@ -300,7 +300,7 @@ Trip (1) ── (N) ChatMessage
 **대응 방안**
 - 각 라이브러리별 공식 Codelab / 튜토리얼을 착수 전 1회 이상 완주
 - Flutter Widgets는 앱 전체 UI의 근간이므로 가장 높은 학습 우선순위 부여
-- camera·소셜 로그인 SDK(google_sign_in/kakao)는 공식 샘플 프로젝트를 fork하여 동작 확인 후 프로젝트에 통합
+- camera·소셜 로그인 SDK(google_sign_in)는 공식 샘플 프로젝트를 fork하여 동작 확인 후 프로젝트에 통합
 
 ---
 
@@ -314,11 +314,11 @@ Trip (1) ── (N) ChatMessage
 | RISK-API4 | Amazon Translate | 텍스트 번역 | 미경험 | 하 | TR-AI3, FR-S1.2 |
 | RISK-API5 | Google Places API | 주변 장소 검색 (Nearby/Text Search) | 미경험 | 중 | TR-EXT1, FR-M.3, FR-S3.2 |
 | RISK-API6 | ExchangeRate-API | 환율 조회 | 미경험 | 하 | TR-EXT2, FR-S2.3 |
-| RISK-API7 | 소셜 OAuth (Google/Kakao) + Lambda Authorizer | ID 토큰 JWKS 검증·인가 | 미경험 | 중 | TR-INF5, NFR-S3, NFR-S4 |
+| RISK-API7 | 소셜 OAuth (Google 단독) + Lambda Authorizer | ID 토큰 JWKS 검증·인가 | 미경험 | 중 | TR-INF5, NFR-S3, NFR-S4 |
 
 **대응 방안**
 - **위험 등급 "상"** (Bedrock): 독립 PoC 스크립트로 단독 호출 테스트 먼저 수행. 동작 확인 후 Lambda에 통합
-- **위험 등급 "중"** (Textract, Google Places, 소셜 OAuth/Lambda Authorizer): AWS 콘솔 또는 API Explorer에서 수동 테스트 1회 이상 수행 후 코드화. 소셜 OAuth는 Google/Kakao 콘솔에서 redirect URI·토큰 발급을 1회 수동 확인 후 `fn-authorizer` JWKS 검증을 단위 테스트
+- **위험 등급 "중"** (Textract, Google Places, 소셜 OAuth/Lambda Authorizer): AWS 콘솔 또는 API Explorer에서 수동 테스트 1회 이상 수행 후 코드화. 소셜 OAuth는 Google 콘솔에서 redirect URI·토큰 발급을 1회 수동 확인 후 `fn-authorizer` JWKS 검증을 단위 테스트
 - **위험 등급 "하"** (Translate, ExchangeRate-API): REST API 기반으로 복잡도 낮음. 공식 문서 참고하여 바로 구현 가능
 
 ---
@@ -368,5 +368,5 @@ Trip (1) ── (N) ChatMessage
 | FR-S1 메뉴판 번역 | camera 패키지, Flutter Widgets | Textract, Translate, Bedrock | 프롬프트, 파싱 로직 | **상** |
 | FR-S2 영수증 기록 | camera 패키지, Flutter Widgets | Textract AnalyzeExpense, Bedrock | SDK 코드 | **중** |
 | FR-S3 AI 일정 관리 | Flutter Widgets | Google Places, Bedrock | 프롬프트, 대화 컨텍스트 관리 | **상** |
-| 인증 | google_sign_in / kakao_flutter_sdk | 소셜 OAuth + Lambda Authorizer | 토큰 검증 코드 | **중** |
+| 인증 | google_sign_in | 소셜 OAuth(Google) + Lambda Authorizer | 토큰 검증 코드 | **중** |
 | 인프라 | SAM | IAM, S3, DynamoDB | IaC 템플릿 | **중** |
