@@ -10,8 +10,8 @@ Globals:
     Timeout: 10
     MemorySize: 128
     Tracing: Active
-    # ★ ADR-012: iam:CreateRole 차단 → 공용 역할을 모든 함수에 강제 주입
-    Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
+    # ★ ADR-012: iam:CreateRole 차단 → 공용 역할을 함수마다 Properties.Role 로 강제.
+    #   Role 은 SAM Globals.Function 미지원 속성이라 각 함수에 개별 지정한다.
 
 Resources:
   # REST API. Authorizer는 Phase 4 인증 작업에서 활성화 — 지금은 NONE.
@@ -28,6 +28,8 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: polylog-fn-health
+      # ★ ADR-012: 공용 실행 역할 재사용(iam:CreateRole 차단). 새 함수 추가 시 동일하게 명시.
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
       CodeUri: src/handlers/health/
       Handler: app.lambda_handler
       Events:
