@@ -12,6 +12,10 @@ Globals:
     Tracing: Active
     # ★ ADR-012: iam:CreateRole 차단 → 공용 역할을 함수마다 Properties.Role 로 강제.
     #   Role 은 SAM Globals.Function 미지원 속성이라 각 함수에 개별 지정한다.
+    # ★ 격리 정책: group=polylog 태그가 없는 자원은 explicit deny.
+    #   CFN 생성 함수엔 태그가 자동 부착되지 않으므로 명시해 GetFunction 거부를 방지.
+    Tags:
+      group: polylog
 
 Resources:
   # REST API. Authorizer는 Phase 4 인증 작업에서 활성화 — 지금은 NONE.
@@ -21,6 +25,8 @@ Resources:
       Name: polylog-api
       StageName: dev
       TracingEnabled: true
+      Tags:
+        group: polylog
 
   # 첫 Lambda — 배포 파이프라인 자체를 검증하는 헬스체크.
   # FunctionName을 명시해 'polylog' prefix 강제 규칙을 보장.
