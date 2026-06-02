@@ -4,34 +4,36 @@ Description: >
   polylog-backend — Phase 3 첫 배포 (fn-health).
   공용 실행 역할 SafeRole-polylog 강제(ADR-012), iam:CreateRole 미사용.
 
+#공통 설정
 Globals:
   Function:
-    Runtime: python3.12
-    Timeout: 10
-    MemorySize: 128
-    Tracing: Active
+    Runtime: python3.12 #사용 환경 
+    Timeout: 10         #10초가 넘으면 무한 루프로 취급하고 종료
+    MemorySize: 128     #128MB 메모리 할당
+    Tracing: Active     #함수가 잘 돌아가는지 확인하는 기능 on
     # ★ ADR-012: iam:CreateRole 차단 → 공용 역할을 함수마다 Properties.Role 로 강제.
     #   Role 은 SAM Globals.Function 미지원 속성이라 각 함수에 개별 지정한다.
     # ★ 격리 정책: group=polylog 태그가 없는 자원은 explicit deny.
     #   CFN 생성 함수엔 태그가 자동 부착되지 않으므로 명시해 GetFunction 거부를 방지.
     Tags:
-      group: polylog
+      group: polylog #앞으로 만들어질 모든 함수에 group=polylog 태그 자동 부착
 
+#실제 조립(클라우드에 만들어낼 모든 자원)
 Resources:
   # REST API. Authorizer는 Phase 4 인증 작업에서 활성화 — 지금은 NONE.
   PolylogApi:
-    Type: AWS::Serverless::Api
+    Type: AWS::Serverless::Api #API Gateway REST API 생성
     Properties:
       Name: polylog-api
-      StageName: dev
-      TracingEnabled: true
+      StageName: dev  #개발 단계라 dev
+      TracingEnabled: true #API Gateway 트레이싱 켜서 호출 흐름 추적
       Tags:
         group: polylog
 
   # 첫 Lambda — 배포 파이프라인 자체를 검증하는 헬스체크.
   # FunctionName을 명시해 'polylog' prefix 강제 규칙을 보장.
   FnHealth:
-    Type: AWS::Serverless::Function
+    Type: AWS::Serverless::Function #람다 함수 생성
     Properties:
       FunctionName: polylog-fn-health
       # ★ ADR-012: 공용 실행 역할 재사용(iam:CreateRole 차단). 새 함수 추가 시 동일하게 명시.
@@ -41,7 +43,7 @@ Resources:
       Tags:
         group: polylog
       Events:
-        Get:
+        Get: # 내가 정해준 이름
           Type: Api
           Properties:
             RestApiId: !Ref PolylogApi
@@ -57,19 +59,20 @@ Resources:
       # ★ ADR-012: 공용 실행 역할 재사용(iam:CreateRole 차단).
       Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
       CodeUri: src/handlers/recommend/
-      Handler: app.lambda_handler
+      Handler: app.lambda_handler # 이 폴더에서 가장 먼저 시작하는 함수 지정
       Timeout: 30
       Tags:
         group: polylog
       Events:
-        Post:
+        Post: # 내가 정해준 이름
           Type: Api
           Properties:
             RestApiId: !Ref PolylogApi
             Path: /recommend
             Method: post
 
-Outputs:
+# 배포 완료 수 영수증/안내판
+Outputs: # 외부에서 접근 가능한 진짜 URL과 설명을 제공하는 출력값
   ApiUrl:
     Description: 헬스체크 기본 URL (뒤에 /health 를 붙여 호출)
     Value: !Sub https://${PolylogApi}.execute-api.${AWS::Region}.amazonaws.com/dev
