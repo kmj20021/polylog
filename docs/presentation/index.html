@@ -131,24 +131,28 @@
         <h2>설계 — 아키텍처</h2>
         <pre class="mermaid">
 flowchart TD
-  A["Flutter App<br/>Camera · GPS · Chat"] -->|"HTTPS + Google OAuth ID 토큰"| G
+  A["Flutter App<br/>입력: Camera · GPS · Chat"] -->|"① HTTPS 요청 + Google ID 토큰"| G
   G["API Gateway (REST)<br/>+ fn-authorizer (JWKS 검증)"] --> R["fn-recommend"]
+  G --> S["fn-schedule"]
   G --> M["fn-menu"]
   G --> C["fn-receipt"]
-  G --> S["fn-schedule"]
+  M & C -.->|"② Presigned URL 발급"| A
+  A -.->|"③ 사진 직접 업로드"| ST["S3 (미디어)"]
+  ST -.->|"④ 사진 읽기"| M & C
   R --> AI1["Bedrock · Google Places"]
+  S --> AI4["Bedrock · Google Places"]
   M --> AI2["Textract · Translate · Bedrock"]
   C --> AI3["Textract · Bedrock · 환율 API"]
-  S --> AI4["Bedrock · Google Places"]
-  AI1 & AI2 & AI3 & AI4 --> ST["S3 (미디어)"] & DB["DynamoDB (구조 데이터)"]
+  AI1 & AI2 & AI3 & AI4 --> DB["DynamoDB (구조 데이터)"]
   classDef app fill:#e8f3fb,stroke:#2b8de6,color:#16263d;
   classDef gw  fill:#d7ebfa,stroke:#1e6fd6,color:#16263d;
   classDef fn  fill:#eef6fd,stroke:#2b8de6,color:#16263d;
   classDef ai  fill:#f1f4f8,stroke:#9aa7b6,color:#475569;
   classDef store fill:#e7f6ed,stroke:#2e9e5b,color:#16263d;
   class A app; class G gw; class R,M,C,S fn; class AI1,AI2,AI3,AI4 ai; class ST,DB store;
+  linkStyle 5,6,7,8,9 stroke:#2e9e5b,stroke-width:1.6px,stroke-dasharray:5 4;
         </pre>
-        <div class="diagram-caption">Lambda 6종(인가 포함) · AWS AI 3종 · 외부 API 2종 — 상시 서버 0대</div>
+        <div class="diagram-caption">Lambda 6종(인가 포함) · AWS AI 3종 · 외부 API 2종 — 상시 서버 0대<br/>점선 = 미디어 흐름: 람다가 <strong>Presigned URL 발급</strong> → 앱이 S3 <strong>직접 업로드</strong> → 메뉴·영수증 람다만 <strong>사진 읽기</strong>. 결과는 전부 DynamoDB.</div>
       </div>
     </section>
 
