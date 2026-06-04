@@ -124,6 +124,27 @@ deploy_lambda "polylog-fn-recommend" \
   "$(get_s3_key FnRecommend)" \
   "app.lambda_handler" 30 128
 
+# ────────────────────────────────────────────
+# 5-1. fn-recommend 환경변수 주입 (Google Places 키)
+#   update-function-code 는 코드만 갱신하고 환경변수는 건드리지 않는다.
+#   → 키가 없으면 Places 호출이 500. 셸에 키가 있을 때만 주입한다.
+#   사용법(CloudShell): export GOOGLE_PLACES_API_KEY=... && bash scripts/deploy.sh
+#   키는 셸 환경에서만 읽으며 스크립트·git 에 하드코딩하지 않는다.
+# ────────────────────────────────────────────
+if [ -n "${GOOGLE_PLACES_API_KEY:-}" ]; then
+    log "fn-recommend 환경변수 주입 (GOOGLE_PLACES_API_KEY)"
+    aws lambda update-function-configuration \
+      --function-name "polylog-fn-recommend" \
+      --environment "Variables={GOOGLE_PLACES_API_KEY=$GOOGLE_PLACES_API_KEY}" \
+      --region "$REGION" --output text --query 'LastModified' > /dev/null
+    aws lambda wait function-updated \
+      --function-name "polylog-fn-recommend" --region "$REGION"
+    log "  ✅ 키 주입 완료"
+else
+    warn "GOOGLE_PLACES_API_KEY 미설정 → fn-recommend 환경변수 주입 건너뜀"
+    warn "   (이 상태로 /recommend 호출 시 500. export 후 다시 배포하세요.)"
+fi
+
 # 추후 추가 예시:
 # deploy_lambda "polylog-fn-authorizer" "$(get_s3_key FnAuthorizer)" "app.lambda_handler" 10 128
 

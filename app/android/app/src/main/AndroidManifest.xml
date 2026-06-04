@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- API Gateway 호출용. debug 매니페스트에만 자동 추가되므로 release 빌드를 위해 명시. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 메인 기능 #1: GPS 주변 장소 추천. 정밀/대략 위치 둘 다 선언. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application
         android:label="polylog"
         android:name="${applicationName}"
