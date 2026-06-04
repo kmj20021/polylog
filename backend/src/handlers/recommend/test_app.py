@@ -54,6 +54,12 @@ _RAW_PLACE = {
     "formattedAddress": "도쿄도 신주쿠구 ...",
     "currentOpeningHours": {"openNow": True},
     "priceLevel": "PRICE_LEVEL_MODERATE",
+    "reviews": [
+        {"text": {"text": "오래된 후기"}, "rating": 4,
+         "publishTime": "2024-01-01T00:00:00Z", "relativePublishTimeDescription": "1년 전"},
+        {"text": {"text": "최신 후기 — 신선해요"}, "rating": 5,
+         "publishTime": "2026-05-01T00:00:00Z", "relativePublishTimeDescription": "한 달 전"},
+    ],
 }
 
 
@@ -66,6 +72,21 @@ def test_normalize_place_with_origin_sets_distance():
     assert p["open_now"] is True
     assert p["address"].startswith("도쿄도")
     assert isinstance(p["distance_m"], int) and p["distance_m"] >= 0
+
+
+# ── 리뷰 추출(_extract_reviews) ──────────────────────────────
+def test_extract_reviews_sorts_newest_first_and_limits():
+    p = app._normalize_place(_RAW_PLACE, origin_lat=None, origin_lng=None)
+    texts = [r["text"] for r in p["reviews"]]
+    # 최신 publishTime 이 먼저, 최대 _MAX_REVIEWS 개
+    assert texts[0] == "최신 후기 — 신선해요"
+    assert len(p["reviews"]) <= app._MAX_REVIEWS
+    assert "_t" not in p["reviews"][0]  # 정렬용 내부 키는 제거됨
+
+
+def test_extract_reviews_skips_empty_and_handles_none():
+    assert app._extract_reviews(None) == []
+    assert app._extract_reviews([{"text": {"text": "  "}}]) == []
 
 
 def test_normalize_place_without_origin_distance_none():
@@ -110,26 +131,58 @@ def test_parse_json_garbage_returns_empty():
     assert app._parse_json_object("") == {}
 
 
-# ── _build_reasons: Bedrock 모킹 ─────────────────────────────
-def test_build_reasons_success(monkeypatch):
+# ── _build_summaries: Bedrock 모킹 ───────────────────────────
+def test_build_summaries_success(monkeypatch):
     monkeypatch.setattr(
         app, "_invoke_claude",
-        lambda prompt: '{"ai_summary":"근처 맛집 모음","reasons":{"a":"별점이 높아요"}}',
+        lambda prompt, max_tokens=768: (
+            '{"ai_summary":"근처 맛집 모음",'
+            '"places":{"a":{"good":"신선해요","bad":"웨이팅 길어요"}}}'
+        ),
     )
     places = [{"place_id": "a", "name": "X", "rating": 4.5,
-               "user_ratings": 10, "distance_m": 100}]
-    summary, reasons = app._build_reasons(places, "맛집", "ko")
+               "user_ratings": 10, "distance_m": 100, "reviews": []}]
+    summary, details = app._build_summaries(places, "맛집", "ko")
     assert summary == "근처 맛집 모음"
-    assert reasons["a"] == "별점이 높아요"
+    assert details["a"]["good"] == "신선해요"
+    assert details["a"]["bad"] == "웨이팅 길어요"
 
 
-def test_build_reasons_bedrock_failure_is_safe(monkeypatch):
-    def boom(prompt):
+def test_build_summaries_bedrock_failure_is_safe(monkeypatch):
+    def boom(prompt, max_tokens=768):
         raise RuntimeError("Bedrock down")
     monkeypatch.setattr(app, "_invoke_claude", boom)
-    summary, reasons = app._build_reasons([{"place_id": "a", "name": "X",
-        "rating": 4.5, "user_ratings": 10, "distance_m": 100}], "맛집", "ko")
-    assert summary == "" and reasons == {}
+    summary, details = app._build_summaries([{"place_id": "a", "name": "X",
+        "rating": 4.5, "user_ratings": 10, "distance_m": 100, "reviews": []}],
+        "맛집", "ko")
+    assert summary == "" and details == {}
+
+
+# ── _extract_category: 자연어 → 카테고리 ─────────────────────
+def test_extract_category_resolved(monkeypatch):
+    monkeypatch.setattr(
+        app, "_invoke_claude",
+        lambda prompt, max_tokens=768: '{"category":"맛집","message":""}',
+    )
+    cat, msg = app._extract_category("근처 괜찮은 레스토랑 있어?", "ko")
+    assert cat == "맛집" and msg == ""
+
+
+def test_extract_category_ambiguous_returns_clarify(monkeypatch):
+    monkeypatch.setattr(
+        app, "_invoke_claude",
+        lambda prompt, max_tokens=768: '{"category":"","message":"숙소를 찾을까요?"}',
+    )
+    cat, msg = app._extract_category("여기 여행하고 싶어", "ko")
+    assert cat == "" and "숙소" in msg
+
+
+def test_extract_category_bedrock_failure_is_safe(monkeypatch):
+    def boom(prompt, max_tokens=768):
+        raise RuntimeError("down")
+    monkeypatch.setattr(app, "_invoke_claude", boom)
+    cat, msg = app._extract_category("아무거나", "ko")
+    assert cat == "" and msg == ""
 
 
 # ── search_nearby_places: 네트워크 모킹 ──────────────────────
@@ -162,7 +215,7 @@ def test_handler_options_preflight():
     assert r["statusCode"] == 200
 
 
-def test_handler_missing_category(monkeypatch):
+def test_handler_missing_category_and_query(monkeypatch):
     monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "K")
     r = app.lambda_handler(_event({"lat": 1, "lng": 2}), None)
     assert r["statusCode"] == 400
@@ -185,13 +238,55 @@ def test_handler_happy_path_with_gps(monkeypatch):
     monkeypatch.setattr(app, "_places_post", lambda u, p, k: {"places": [_RAW_PLACE]})
     monkeypatch.setattr(
         app, "_invoke_claude",
-        lambda prompt: '{"ai_summary":"근처 맛집","reasons":{"ChIJxxxx":"인기 많아요"}}',
+        lambda prompt, max_tokens=768: (
+            '{"ai_summary":"근처 맛집",'
+            '"places":{"ChIJxxxx":{"good":"신선해요","bad":"웨이팅"}}}'
+        ),
     )
     r = app.lambda_handler(_event({"lat": 35.6938, "lng": 139.7034,
                                    "category": "맛집"}), None)
     assert r["statusCode"] == 200
     body = json.loads(r["body"])
+    assert body["type"] == "result"
     assert body["category"] == "맛집"
     assert body["ai_summary"] == "근처 맛집"
-    assert body["places"][0]["ai_reason"] == "인기 많아요"
+    place = body["places"][0]
+    assert place["review_good"] == "신선해요"
+    assert place["review_bad"] == "웨이팅"
+    assert place["reviews_used"] == 2
+    assert "reviews" not in place  # 원본 리뷰는 응답에서 제외
     assert "recommendation_id" in body
+
+
+def test_handler_natural_language_query_resolves_category(monkeypatch):
+    monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "K")
+    monkeypatch.setattr(app, "_places_post", lambda u, p, k: {"places": [_RAW_PLACE]})
+
+    def fake_claude(prompt, max_tokens=768):
+        # 첫 호출(추출) vs 둘째 호출(요약)을 프롬프트 내용으로 구분
+        if "장소 카테고리를 하나만" in prompt:
+            return '{"category":"맛집","message":""}'
+        return '{"ai_summary":"맛집","places":{"ChIJxxxx":{"good":"좋아요","bad":"-"}}}'
+
+    monkeypatch.setattr(app, "_invoke_claude", fake_claude)
+    r = app.lambda_handler(_event({"lat": 35.6938, "lng": 139.7034,
+                                   "query": "근처 괜찮은 레스토랑"}), None)
+    assert r["statusCode"] == 200
+    body = json.loads(r["body"])
+    assert body["type"] == "result"
+    assert body["category"] == "맛집"
+
+
+def test_handler_ambiguous_query_returns_clarify(monkeypatch):
+    monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "K")
+    monkeypatch.setattr(
+        app, "_invoke_claude",
+        lambda prompt, max_tokens=768: '{"category":"","message":"맛집을 찾을까요, 숙소를 찾을까요?"}',
+    )
+    r = app.lambda_handler(_event({"lat": 35.6938, "lng": 139.7034,
+                                   "query": "여기 여행하고 싶어"}), None)
+    assert r["statusCode"] == 200
+    body = json.loads(r["body"])
+    assert body["type"] == "clarify"
+    assert body["suggestions"] == app._CLARIFY_SUGGESTIONS
+    assert "맛집" in body["message"]

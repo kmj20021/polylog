@@ -11,6 +11,15 @@
 > STEP 2(test_app.py 21개 통과)·STEP 3(deploy.sh 키 주입 분기)·STEP 4(geolocator 의존성 추가·
 > recommend_screen 카드 UI·AndroidManifest 위치권한) 모두 작성+정적분석 통과.
 > **남은 것은 🧑 사용자 실행**: STEP 0(Google 키 발급) → STEP 3(CloudShell `export … && deploy.sh` + curl) → STEP 5(폰 E2E).
+>
+> **[2026-06-04 추가 — 추천 "대화형"으로 확장]** Google Places(New) 실 호출 검증 완료(신주쿠 실데이터).
+> 이어서 추천을 대화형으로 확장(범위: 추천까지만, 일정 #2는 별도). 변경된 `/recommend` contract:
+>   - 입력: `{lat,lng,query}`(자연어 주력) · `{lat,lng,category}`(칩) · `{location,query}`(폴백).
+>   - 응답 `type` 분기: `"clarify"`(카테고리 모호 → `message`+`suggestions[]`) / `"result"`(`ai_summary`+`places[]`).
+>   - place 필드 변경: `ai_reason` 제거, `review_good`·`review_bad`·`reviews_used` 추가
+>     (FieldMask에 `places.reviews` 추가 → 최신 3개 리뷰 Bedrock 1콜 요약. 광고탐지는 미구현).
+>   - 프론트 `recommend_screen.dart` = 채팅 UI(모드선택 장소추천/일정변경[준비중]+말풍선+칩+카드)로 재작성.
+>   - pytest 28개 통과 / `flutter analyze` 클린. **배포·E2E는 동일하게 🧑 STEP 3·5.**
 
 
 - 환경 구축(Phase 0~4) 완료: API Gateway·Lambda(`fn-health`, `fn-recommend`)·DynamoDB 7종·S3 2종·Bedrock 액세스·Flutter 스켈레톤 존재.

@@ -4,12 +4,17 @@ import 'package:flutter/material.dart';
 import '../../core/api/dio_client.dart';
 import '../../core/location/geolocator.dart';
 
-/// 위치 기반 AI 장소 추천 화면 (메인 기능 #1).
+/// 위치 기반 AI 장소 추천 — 대화형 화면 (메인 기능 #1).
 ///
-/// 기본 동작은 GPS — "내 주변 추천받기"를 누르면 현재 좌표를 잡아
-/// POST /recommend 에 {lat,lng,category} 를 보낸다. 위치 권한이 거부되거나
-/// GPS 가 꺼져 있으면 여행지를 직접 입력하는 텍스트 폴백으로 추천한다.
-/// 응답의 places[] 를 별점·거리·추천 이유가 담긴 카드 리스트로 그린다.
+/// 흐름(사용자 시나리오):
+///   1) 상단에서 "장소 추천 / 일정 변경" 중 선택(일정 변경은 메인 #2, 준비 중).
+///   2) 자연어로 입력 → 서버가 카테고리를 추출. GPS 좌표가 있으면 {lat,lng,query},
+///      없으면 {location, query} 로 보낸다.
+///   3) 서버 응답 type 으로 분기:
+///        - "clarify": 카테고리가 모호 → 되묻는 말풍선 + 카테고리 칩(탭하면 재요청).
+///        - "result" : 전체 요약 말풍선 + 장소 카드(별점·거리·리뷰 요약 좋은점/아쉬운점).
+///
+/// 대화는 위에서 아래로 쌓이는 말풍선/카드 목록(_items)으로 표현한다.
 class RecommendScreen extends StatefulWidget {
   const RecommendScreen({super.key});
 
@@ -17,192 +22,239 @@ class RecommendScreen extends StatefulWidget {
   State<RecommendScreen> createState() => _RecommendScreenState();
 }
 
+enum _Mode { recommend, schedule }
+
 class _RecommendScreenState extends State<RecommendScreen> {
-  final _locationController = TextEditingController();
+  final _input = TextEditingController();
+  final _scroll = ScrollController();
   final _location = LocationService();
 
-  static const _categories = ['맛집', '숙소', '관광지', '카페'];
-  String _category = '맛집';
+  _Mode _mode = _Mode.recommend;
 
   bool _loading = false;
-  String? _error;
-  String? _aiSummary;
-  String? _resultHeader;
-  List<_Place> _places = const [];
+  ({double lat, double lng})? _pos; // null = 위치 미확보(텍스트 폴백)
+  bool _gpsTried = false;
+  String _lastUserText = '';
+
+  /// 대화 항목들(위→아래). _ChatItem 의 서브타입으로 분기 렌더.
+  final List<_ChatItem> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _items.add(const _AiText(
+      '안녕하세요! 지금 계신 곳 주변을 찾아드릴게요. '
+      '예: "근처 괜찮은 레스토랑 있어?", "조용한 카페 추천해줘"',
+    ));
+    _ensureGps();
+  }
 
   @override
   void dispose() {
-    _locationController.dispose();
+    _input.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  /// 📍 GPS 경로 — 현재 좌표를 잡아 추천. 좌표를 못 얻으면 텍스트 입력 안내.
-  Future<void> _fetchByGps() async {
-    FocusScope.of(context).unfocus();
+  /// 화면 진입 시 GPS 좌표를 한 번 확보(거부/실패해도 텍스트 폴백으로 계속 진행).
+  Future<void> _ensureGps() async {
+    final p = await _location.getCurrentPosition();
+    if (!mounted) return;
     setState(() {
-      _loading = true;
-      _error = null;
+      _gpsTried = true;
+      _pos = (p == null) ? null : (lat: p.latitude, lng: p.longitude);
     });
-    try {
-      final pos = await _location.getCurrentPosition();
-      if (pos == null) {
-        setState(() => _error =
-            '위치를 가져오지 못했어요. 위치 권한을 허용하거나, 아래에 여행지를 직접 입력해 주세요.');
-        return;
+  }
+
+  void _scrollToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
       }
-      await _post(
-        {'lat': pos.latitude, 'lng': pos.longitude, 'category': _category},
-        header: '내 주변 · $_category',
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+    });
   }
 
-  /// ⌨️ 폴백 경로 — 입력한 여행지 텍스트로 추천.
-  Future<void> _fetchByText() async {
-    final location = _locationController.text.trim();
-    if (location.isEmpty) {
-      setState(() => _error = '여행지를 입력하거나 "내 주변 추천받기"를 눌러 주세요.');
-      return;
-    }
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      await _post(
-        {'location': location, 'category': _category},
-        header: '$location · $_category',
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+  /// 자연어 전송 — 입력창의 글을 query 로 보낸다.
+  Future<void> _send() async {
+    final text = _input.text.trim();
+    if (text.isEmpty || _loading) return;
+    _input.clear();
+    _lastUserText = text;
+    _push(_UserMsg(text));
+    await _request({'query': text}, fallbackLocation: text);
   }
 
-  /// 공통 호출 — 성공하면 ai_summary + places 카드로 그린다.
-  Future<void> _post(Map<String, dynamic> data, {required String header}) async {
-    setState(() {
-      _error = null;
-      _aiSummary = null;
-      _places = const [];
-    });
+  /// 카테고리 칩 탭(clarify 응답에 답함) — 카테고리를 직접 지정해 재요청.
+  Future<void> _pickCategory(String category) async {
+    if (_loading) return;
+    _push(_UserMsg(category));
+    await _request({'category': category}, fallbackLocation: _lastUserText);
+  }
+
+  /// 공통 요청 — GPS 유무로 좌표/텍스트 입력을 구성하고, 응답 type 으로 분기.
+  Future<void> _request(
+    Map<String, dynamic> intent, {
+    required String fallbackLocation,
+  }) async {
+    setState(() => _loading = true);
+    _scrollToEnd();
     try {
+      final data = <String, dynamic>{...intent};
+      if (_pos != null) {
+        data['lat'] = _pos!.lat;
+        data['lng'] = _pos!.lng;
+      } else {
+        // 위치를 못 잡았으면 입력 텍스트를 검색 지역으로 사용(텍스트 폴백).
+        data['location'] = fallbackLocation;
+      }
+
       final res = await DioClient().post<Map<String, dynamic>>(
         '/recommend',
         data: data,
       );
       final body = res.data ?? const {};
-      final rawPlaces = (body['places'] as List?) ?? const [];
-      setState(() {
-        _resultHeader = header;
-        _aiSummary = (body['ai_summary'] ?? '').toString();
-        _places = rawPlaces
-            .whereType<Map>()
-            .map((e) => _Place.fromJson(e.cast<String, dynamic>()))
-            .toList();
-      });
+      final type = (body['type'] ?? 'result').toString();
+
+      if (type == 'clarify') {
+        _push(_AiClarify(
+          message: (body['message'] ?? '어떤 곳을 찾아드릴까요?').toString(),
+          suggestions: ((body['suggestions'] as List?) ?? const [])
+              .map((e) => e.toString())
+              .toList(),
+        ));
+      } else {
+        final rawPlaces = (body['places'] as List?) ?? const [];
+        _push(_AiResult(
+          summary: (body['ai_summary'] ?? '').toString(),
+          places: rawPlaces
+              .whereType<Map>()
+              .map((e) => _Place.fromJson(e.cast<String, dynamic>()))
+              .toList(),
+        ));
+      }
     } on DioException catch (e) {
       final b = e.response?.data;
       final msg = (b is Map && b['error'] != null)
-          ? b['error']
+          ? b['error'].toString()
           : (e.message ?? '네트워크 오류');
-      setState(() => _error = 'AI 추천을 불러오지 못했어요.\n$msg');
+      _push(_AiError('추천을 불러오지 못했어요.\n$msg'));
     } catch (e) {
-      setState(() => _error = '알 수 없는 오류: $e');
+      _push(_AiError('알 수 없는 오류: $e'));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+      _scrollToEnd();
     }
+  }
+
+  void _push(_ChatItem item) {
+    setState(() => _items.add(item));
+    _scrollToEnd();
+  }
+
+  void _onModeChanged(_Mode m) {
+    if (m == _Mode.schedule) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('일정 변경 기능은 준비 중이에요 (메인 #2).')),
+      );
+      return; // 추천 모드 유지
+    }
+    setState(() => _mode = m);
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('AI 장소 추천')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            DropdownButtonFormField<String>(
-              value: _category,
-              decoration: const InputDecoration(
-                labelText: '카테고리',
-                prefixIcon: Icon(Icons.category_outlined),
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final c in _categories)
-                  DropdownMenuItem(value: c, child: Text(c)),
-              ],
-              onChanged: _loading
-                  ? null
-                  : (v) => setState(() => _category = v ?? _category),
+      body: Column(
+        children: [
+          _ModeBar(mode: _mode, onChanged: _onModeChanged),
+          _GpsBanner(tried: _gpsTried, hasPos: _pos != null),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.builder(
+              controller: _scroll,
+              padding: const EdgeInsets.all(16),
+              itemCount: _items.length + (_loading ? 1 : 0),
+              itemBuilder: (context, i) {
+                if (i >= _items.length) return const _TypingBubble();
+                return _ChatItemView(
+                  item: _items[i],
+                  onPickCategory: _pickCategory,
+                );
+              },
             ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _loading ? null : _fetchByGps,
-              icon: _loading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.my_location),
-              label: Text(_loading ? '주변 검색 중…' : '내 주변 추천받기'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                const Expanded(child: Divider()),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text('또는 여행지 직접 입력',
-                      style: theme.textTheme.bodySmall),
-                ),
-                const Expanded(child: Divider()),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _locationController,
-              textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _loading ? null : _fetchByText(),
-              decoration: InputDecoration(
-                labelText: '여행지',
-                hintText: '예: 도쿄 신주쿠',
-                prefixIcon: const Icon(Icons.place_outlined),
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: _loading ? null : _fetchByText,
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (_error != null) _ErrorCard(message: _error!),
-            if (_aiSummary != null && _aiSummary!.isNotEmpty)
-              _SummaryCard(
-                header: _resultHeader ?? '',
-                summary: _aiSummary!,
-                color: theme.colorScheme.primary,
-              ),
-            if (_places.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              for (final p in _places) _PlaceCard(place: p),
-            ],
-            if (_aiSummary != null && _places.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 12),
-                child: Text('조건에 맞는 장소를 찾지 못했어요.'),
-              ),
-          ],
-        ),
+          ),
+          const Divider(height: 1),
+          _InputBar(
+            controller: _input,
+            enabled: !_loading,
+            onSend: _send,
+          ),
+        ],
       ),
     );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// 대화 항목 모델 — 서브타입으로 분기 렌더
+// ──────────────────────────────────────────────────────────────
+sealed class _ChatItem {
+  const _ChatItem();
+}
+
+class _UserMsg extends _ChatItem {
+  final String text;
+  const _UserMsg(this.text);
+}
+
+class _AiText extends _ChatItem {
+  final String text;
+  const _AiText(this.text);
+}
+
+class _AiError extends _ChatItem {
+  final String text;
+  const _AiError(this.text);
+}
+
+class _AiClarify extends _ChatItem {
+  final String message;
+  final List<String> suggestions;
+  const _AiClarify({required this.message, required this.suggestions});
+}
+
+class _AiResult extends _ChatItem {
+  final String summary;
+  final List<_Place> places;
+  const _AiResult({required this.summary, required this.places});
+}
+
+class _ChatItemView extends StatelessWidget {
+  final _ChatItem item;
+  final ValueChanged<String> onPickCategory;
+  const _ChatItemView({required this.item, required this.onPickCategory});
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (item) {
+      _UserMsg(:final text) => _Bubble(text: text, fromUser: true),
+      _AiText(:final text) => _Bubble(text: text, fromUser: false),
+      _AiError(:final text) => _ErrorCard(message: text),
+      _AiClarify(:final message, :final suggestions) => _ClarifyCard(
+          message: message,
+          suggestions: suggestions,
+          onPick: onPickCategory,
+        ),
+      _AiResult(:final summary, :final places) => _ResultBlock(
+          summary: summary,
+          places: places,
+        ),
+    };
   }
 }
 
@@ -214,7 +266,9 @@ class _Place {
   final int? distanceM;
   final String address;
   final bool? openNow;
-  final String aiReason;
+  final String reviewGood;
+  final String reviewBad;
+  final int reviewsUsed;
 
   const _Place({
     required this.name,
@@ -223,7 +277,9 @@ class _Place {
     required this.distanceM,
     required this.address,
     required this.openNow,
-    required this.aiReason,
+    required this.reviewGood,
+    required this.reviewBad,
+    required this.reviewsUsed,
   });
 
   factory _Place.fromJson(Map<String, dynamic> j) {
@@ -234,7 +290,9 @@ class _Place {
       distanceM: (j['distance_m'] as num?)?.toInt(),
       address: (j['address'] ?? '').toString(),
       openNow: j['open_now'] as bool?,
-      aiReason: (j['ai_reason'] ?? '').toString(),
+      reviewGood: (j['review_good'] ?? '').toString(),
+      reviewBad: (j['review_bad'] ?? '').toString(),
+      reviewsUsed: (j['reviews_used'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -246,47 +304,212 @@ class _Place {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  final String header;
-  final String summary;
-  final Color color;
-  const _SummaryCard({
-    required this.header,
-    required this.summary,
-    required this.color,
+// ──────────────────────────────────────────────────────────────
+// 상단 바: 모드 선택 + GPS 상태
+// ──────────────────────────────────────────────────────────────
+class _ModeBar extends StatelessWidget {
+  final _Mode mode;
+  final ValueChanged<_Mode> onChanged;
+  const _ModeBar({required this.mode, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: SegmentedButton<_Mode>(
+        segments: const [
+          ButtonSegment(
+            value: _Mode.recommend,
+            icon: Icon(Icons.place_outlined),
+            label: Text('장소 추천'),
+          ),
+          ButtonSegment(
+            value: _Mode.schedule,
+            icon: Icon(Icons.event_note_outlined),
+            label: Text('일정 변경'),
+          ),
+        ],
+        selected: {mode},
+        onSelectionChanged: (s) => onChanged(s.first),
+      ),
+    );
+  }
+}
+
+class _GpsBanner extends StatelessWidget {
+  final bool tried;
+  final bool hasPos;
+  const _GpsBanner({required this.tried, required this.hasPos});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, text, color) = !tried
+        ? (Icons.gps_not_fixed, '현재 위치 확인 중…', scheme.onSurfaceVariant)
+        : hasPos
+            ? (Icons.my_location, '현재 위치 기준으로 찾아요', scheme.primary)
+            : (Icons.location_off, '위치 꺼짐 — 메시지에 지역명을 함께 적어 주세요',
+                scheme.error);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(text, style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: color)),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// 말풍선 / 카드들
+// ──────────────────────────────────────────────────────────────
+class _Bubble extends StatelessWidget {
+  final String text;
+  final bool fromUser;
+  const _Bubble({required this.text, required this.fromUser});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Align(
+      alignment: fromUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.8,
+        ),
+        decoration: BoxDecoration(
+          color: fromUser ? scheme.primary : scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: fromUser ? scheme.onPrimary : scheme.onSurface,
+            height: 1.4,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClarifyCard extends StatelessWidget {
+  final String message;
+  final List<String> suggestions;
+  final ValueChanged<String> onPick;
+  const _ClarifyCard({
+    required this.message,
+    required this.suggestions,
+    required this.onPick,
   });
 
   @override
   Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Bubble(text: message, fromUser: false),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final s in suggestions)
+                ActionChip(
+                  avatar: const Icon(Icons.search, size: 16),
+                  label: Text(s),
+                  onPressed: () => onPick(s),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ResultBlock extends StatelessWidget {
+  final String summary;
+  final List<_Place> places;
+  const _ResultBlock({required this.summary, required this.places});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (summary.isNotEmpty) _SummaryCard(summary: summary),
+        if (places.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text('조건에 맞는 장소를 찾지 못했어요.'),
+          ),
+        for (final p in places) _PlaceCard(place: p),
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  final String summary;
+  const _SummaryCard({required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final color = theme.colorScheme.primary;
     return Card(
       elevation: 0,
-      color: color.withOpacity(0.06),
+      margin: const EdgeInsets.only(bottom: 12),
+      color: color.withValues(alpha: 0.06),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: color.withOpacity(0.25)),
+        side: BorderSide(color: color.withValues(alpha: 0.25)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.auto_awesome, size: 18, color: color),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    header,
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
+            Icon(Icons.auto_awesome, size: 18, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(summary,
+                  style: theme.textTheme.bodyLarge?.copyWith(height: 1.5)),
             ),
-            const Divider(height: 24),
-            Text(summary,
-                style: theme.textTheme.bodyLarge?.copyWith(height: 1.5)),
           ],
         ),
       ),
@@ -341,34 +564,30 @@ class _PlaceCard extends StatelessWidget {
                 if (place.openNow != null)
                   _MetaChip(
                     icon: Icons.circle,
-                    iconColor:
-                        place.openNow! ? Colors.green : scheme.error,
+                    iconColor: place.openNow! ? Colors.green : scheme.error,
                     label: place.openNow! ? '영업 중' : '영업 종료',
                   ),
               ],
             ),
-            if (place.aiReason.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: scheme.primary.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.auto_awesome,
-                        size: 16, color: scheme.primary),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(place.aiReason,
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(height: 1.4)),
-                    ),
-                  ],
-                ),
+            if (place.reviewGood.isNotEmpty)
+              _ReviewLine(
+                icon: Icons.thumb_up_alt_outlined,
+                color: Colors.green.shade700,
+                label: '좋은 점',
+                text: place.reviewGood,
               ),
+            if (place.reviewBad.isNotEmpty)
+              _ReviewLine(
+                icon: Icons.thumb_down_alt_outlined,
+                color: scheme.error,
+                label: '아쉬운 점',
+                text: place.reviewBad,
+              ),
+            if (place.reviewsUsed > 0) ...[
+              const SizedBox(height: 6),
+              Text('리뷰 ${place.reviewsUsed}개 기반 요약',
+                  style: theme.textTheme.labelSmall
+                      ?.copyWith(color: scheme.onSurfaceVariant)),
             ],
             if (place.address.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -378,6 +597,52 @@ class _PlaceCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReviewLine extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String text;
+  const _ReviewLine({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: theme.textTheme.bodyMedium?.copyWith(height: 1.4),
+                children: [
+                  TextSpan(
+                    text: '$label  ',
+                    style: TextStyle(
+                        color: color, fontWeight: FontWeight.bold),
+                  ),
+                  TextSpan(
+                    text: text,
+                    style: TextStyle(color: theme.colorScheme.onSurface),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -415,6 +680,7 @@ class _ErrorCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Card(
       elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
       color: scheme.errorContainer,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -424,10 +690,60 @@ class _ErrorCard extends StatelessWidget {
             Icon(Icons.error_outline, color: scheme.onErrorContainer),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                message,
-                style: TextStyle(color: scheme.onErrorContainer),
+              child: Text(message,
+                  style: TextStyle(color: scheme.onErrorContainer)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InputBar extends StatelessWidget {
+  final TextEditingController controller;
+  final bool enabled;
+  final VoidCallback onSend;
+  const _InputBar({
+    required this.controller,
+    required this.enabled,
+    required this.onSend,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                enabled: enabled,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => onSend(),
+                decoration: InputDecoration(
+                  hintText: '무엇을 찾아드릴까요?',
+                  filled: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
               ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: enabled ? onSend : null,
+              style: FilledButton.styleFrom(
+                shape: const CircleBorder(),
+                padding: const EdgeInsets.all(14),
+              ),
+              child: const Icon(Icons.send),
             ),
           ],
         ),
