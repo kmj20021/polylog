@@ -143,3 +143,54 @@
 - 기능이 **완전히 동작하는 걸 확인한 뒤**, "왜 만들었나 / 무슨 역할인가"를 **중학생 눈높이**로 설명.
 - 사용자가 "오류 난다"고 하면, **왜 발생했고 어떻게 고쳤는지**까지 설명.
 - 논의 단계에서 다중선택 폼(AskUserQuestion) 대신 **인라인 대화형 질문** 선호.
+
+---
+
+## [2026-06-04 추가 — 서브3 일정 관리 MVP-A (fn-schedule)]
+
+추천 장소를 '여행 일정'에 담아 **상단 타임라인**으로 보여주는 단계. 범위 A(추가→저장→표시)만.
+대화형 수정(삭제/시간변경/재추천)은 다음 단계로 미룸.
+
+### 계약
+- `POST /schedule` — 일정에 추가(PutItem).
+  입력 `{trip_id?, place_id, place_name|name, latitude|lat, longitude|lng, address?, rating?, title?}`
+  (trip_id 생략 시 `demo-trip`) → 응답 `{"type":"added","item":{...}}`
+- `GET /schedule?trip_id=demo-trip` — 타임라인 조회(Query, 시간순) → `{"type":"timeline","count":N,"items":[...]}`
+
+### 데이터 — DynamoDB `polylog-schedules` (ADR-014)
+- PK=`trip_id`, SK=`start_time`(ISO). MVP는 '추가한 시각'을 start_time 으로 → 추가 순서 = 타임라인 순서.
+- 항목: trip_id, start_time, schedule_id(uuid), title, place_name, place_id, latitude/longitude/rating(Decimal),
+  address, source="ai_recommended", created_at/updated_at.
+- 위/경도·평점은 DynamoDB가 float 거부 → Decimal 저장, 응답 시 숫자 환원(`_json_safe`).
+
+### IAM — 추가 작업 불필요
+- 공용 역할 `SafeRole-polylog`가 이미 `polylog*` 테이블 DynamoDB 권한 보유(iam-guide §SafeRole, ADR-012).
+
+### Flutter — `recommend_screen.dart`
+- 추천 카드 우상단 **"담기"** 버튼(`_AddButton`, 담기 전/중/담음 3상태) → POST /schedule → 타임라인 재로드.
+- 상단 **`_TimelineBar`** = 가로 스크롤 칩(1→2→3…). 진입 시 GET 으로 로드. `_Place`에 place_id/lat/lng 추가.
+- `DioClient.get`에 queryParameters 지원 추가.
+
+### 변경 파일
+| 파일 | 내용 |
+|---|---|
+| `backend/src/handlers/schedule/app.py` | 신규 — PutItem/Query, 메서드 라우팅, Decimal 변환 |
+| `backend/src/handlers/schedule/test_app.py` | 신규 pytest 13개 |
+| `backend/template.yaml` | FnSchedule(POST/GET /schedule) + ScheduleUrl 출력 |
+| `scripts/deploy.sh` | `deploy_lambda polylog-fn-schedule` 추가 |
+| `app/lib/core/api/dio_client.dart` | get() queryParameters |
+| `app/lib/features/recommend/recommend_screen.dart` | 타임라인 바 + 담기 버튼 + 일정 API |
+
+### ⚠️ 배포 전 필수 — 테이블 생성(CloudShell, 1회)
+`polylog-schedules`가 없으면 먼저 생성. (명령은 `docs/archive/mk_DynamoDB_logic.md` #2와 동일)
+```bash
+aws dynamodb describe-table --table-name polylog-schedules --region ap-northeast-2 >/dev/null 2>&1 \
+ || aws dynamodb create-table --table-name polylog-schedules \
+      --attribute-definitions AttributeName=trip_id,AttributeType=S AttributeName=start_time,AttributeType=S \
+      --key-schema AttributeName=trip_id,KeyType=HASH AttributeName=start_time,KeyType=RANGE \
+      --billing-mode PAY_PER_REQUEST --region ap-northeast-2
+```
+
+### 검증
+- 노트북: `pytest backend/src/handlers/schedule/` 13 통과, `flutter analyze` 클린.
+- (테스트는 핸들러별로 실행 — recommend/schedule 둘 다 `test_app.py`라 한 번에 수집 시 이름 충돌)

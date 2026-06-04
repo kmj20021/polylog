@@ -36,8 +36,14 @@ class _RecommendScreenState extends State<RecommendScreen> {
   bool _gpsTried = false;
   String _lastUserText = '';
 
+  /// 로그인/Trip 생성(다른 기능) 전까지 PoC 고정 여행 식별자.
+  static const String _tripId = 'demo-trip';
+
   /// 대화 항목들(위→아래). _ChatItem 의 서브타입으로 분기 렌더.
   final List<_ChatItem> _items = [];
+
+  /// 상단 타임라인에 쌓이는 '담은 일정'(서버 polylog-schedules 와 동기).
+  final List<_ScheduleItem> _timeline = [];
 
   @override
   void initState() {
@@ -47,6 +53,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
       '예: "근처 괜찮은 레스토랑 있어?", "조용한 카페 추천해줘"',
     ));
     _ensureGps();
+    _loadTimeline();
   }
 
   @override
@@ -158,11 +165,61 @@ class _RecommendScreenState extends State<RecommendScreen> {
   void _onModeChanged(_Mode m) {
     if (m == _Mode.schedule) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('일정 변경 기능은 준비 중이에요 (메인 #2).')),
+        const SnackBar(content: Text('일정 대화형 수정은 준비 중이에요 (다음 단계).')),
       );
       return; // 추천 모드 유지
     }
     setState(() => _mode = m);
+  }
+
+  /// 서버에서 현재 여행(demo-trip)의 일정을 시간순으로 불러와 상단 타임라인을 채운다.
+  Future<void> _loadTimeline() async {
+    try {
+      final res = await DioClient().get<Map<String, dynamic>>(
+        '/schedule',
+        queryParameters: {'trip_id': _tripId},
+      );
+      final raw = (res.data?['items'] as List?) ?? const [];
+      if (!mounted) return;
+      setState(() {
+        _timeline
+          ..clear()
+          ..addAll(raw
+              .whereType<Map>()
+              .map((e) => _ScheduleItem.fromJson(e.cast<String, dynamic>())));
+      });
+    } catch (_) {
+      // 타임라인 로드 실패는 조용히 무시(추천 흐름을 막지 않음).
+    }
+  }
+
+  /// 추천 카드의 '일정에 추가' → 서버에 저장 후 상단 타임라인을 갱신한다.
+  Future<void> _addToSchedule(_Place p) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await DioClient().post<Map<String, dynamic>>(
+        '/schedule',
+        data: {
+          'trip_id': _tripId,
+          'place_id': p.placeId,
+          'place_name': p.name,
+          if (p.lat != null) 'latitude': p.lat,
+          if (p.lng != null) 'longitude': p.lng,
+          if (p.address.isNotEmpty) 'address': p.address,
+          if (p.rating != null) 'rating': p.rating,
+        },
+      );
+      await _loadTimeline();
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('일정에 "${p.name}" 추가됨')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('추가 실패: $e')),
+      );
+    }
   }
 
   @override
@@ -171,6 +228,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
       appBar: AppBar(title: const Text('AI 장소 추천')),
       body: Column(
         children: [
+          _TimelineBar(items: _timeline),
           _ModeBar(mode: _mode, onChanged: _onModeChanged),
           _GpsBanner(tried: _gpsTried, hasPos: _pos != null),
           const Divider(height: 1),
@@ -184,6 +242,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
                 return _ChatItemView(
                   item: _items[i],
                   onPickCategory: _pickCategory,
+                  onAddToSchedule: _addToSchedule,
                 );
               },
             ),
@@ -237,7 +296,12 @@ class _AiResult extends _ChatItem {
 class _ChatItemView extends StatelessWidget {
   final _ChatItem item;
   final ValueChanged<String> onPickCategory;
-  const _ChatItemView({required this.item, required this.onPickCategory});
+  final Future<void> Function(_Place) onAddToSchedule;
+  const _ChatItemView({
+    required this.item,
+    required this.onPickCategory,
+    required this.onAddToSchedule,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -253,6 +317,7 @@ class _ChatItemView extends StatelessWidget {
       _AiResult(:final summary, :final places) => _ResultBlock(
           summary: summary,
           places: places,
+          onAdd: onAddToSchedule,
         ),
     };
   }
@@ -260,36 +325,46 @@ class _ChatItemView extends StatelessWidget {
 
 /// 응답 places[] 항목 1개의 표시용 모델.
 class _Place {
+  final String placeId;
   final String name;
   final double? rating;
   final int userRatings;
   final int? distanceM;
   final String address;
   final bool? openNow;
+  final double? lat;
+  final double? lng;
   final String reviewGood;
   final String reviewBad;
   final int reviewsUsed;
 
   const _Place({
+    required this.placeId,
     required this.name,
     required this.rating,
     required this.userRatings,
     required this.distanceM,
     required this.address,
     required this.openNow,
+    required this.lat,
+    required this.lng,
     required this.reviewGood,
     required this.reviewBad,
     required this.reviewsUsed,
   });
 
   factory _Place.fromJson(Map<String, dynamic> j) {
+    final loc = (j['location'] as Map?)?.cast<String, dynamic>() ?? const {};
     return _Place(
+      placeId: (j['place_id'] ?? '').toString(),
       name: (j['name'] ?? '').toString(),
       rating: (j['rating'] as num?)?.toDouble(),
       userRatings: (j['user_ratings'] as num?)?.toInt() ?? 0,
       distanceM: (j['distance_m'] as num?)?.toInt(),
       address: (j['address'] ?? '').toString(),
       openNow: j['open_now'] as bool?,
+      lat: (loc['lat'] as num?)?.toDouble(),
+      lng: (loc['lng'] as num?)?.toDouble(),
       reviewGood: (j['review_good'] ?? '').toString(),
       reviewBad: (j['review_bad'] ?? '').toString(),
       reviewsUsed: (j['reviews_used'] as num?)?.toInt() ?? 0,
@@ -301,6 +376,21 @@ class _Place {
     if (distanceM == null) return null;
     if (distanceM! < 1000) return '${distanceM}m';
     return '${(distanceM! / 1000).toStringAsFixed(1)}km';
+  }
+}
+
+/// 상단 타임라인에 표시할 '담은 일정' 1개(서버 polylog-schedules 항목).
+class _ScheduleItem {
+  final String title;
+  final String placeName;
+  const _ScheduleItem({required this.title, required this.placeName});
+
+  factory _ScheduleItem.fromJson(Map<String, dynamic> j) {
+    final name = (j['place_name'] ?? '').toString();
+    return _ScheduleItem(
+      title: (j['title'] ?? name).toString(),
+      placeName: name,
+    );
   }
 }
 
@@ -463,7 +553,12 @@ class _ClarifyCard extends StatelessWidget {
 class _ResultBlock extends StatelessWidget {
   final String summary;
   final List<_Place> places;
-  const _ResultBlock({required this.summary, required this.places});
+  final Future<void> Function(_Place) onAdd;
+  const _ResultBlock({
+    required this.summary,
+    required this.places,
+    required this.onAdd,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -476,7 +571,7 @@ class _ResultBlock extends StatelessWidget {
             padding: EdgeInsets.only(bottom: 12),
             child: Text('조건에 맞는 장소를 찾지 못했어요.'),
           ),
-        for (final p in places) _PlaceCard(place: p),
+        for (final p in places) _PlaceCard(place: p, onAdd: onAdd),
         const SizedBox(height: 4),
       ],
     );
@@ -517,12 +612,33 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _PlaceCard extends StatelessWidget {
+class _PlaceCard extends StatefulWidget {
   final _Place place;
-  const _PlaceCard({required this.place});
+  final Future<void> Function(_Place) onAdd;
+  const _PlaceCard({required this.place, required this.onAdd});
+
+  @override
+  State<_PlaceCard> createState() => _PlaceCardState();
+}
+
+class _PlaceCardState extends State<_PlaceCard> {
+  bool _added = false;
+  bool _adding = false;
+
+  Future<void> _handleAdd() async {
+    if (_added || _adding) return;
+    setState(() => _adding = true);
+    await widget.onAdd(widget.place);
+    if (!mounted) return;
+    setState(() {
+      _adding = false;
+      _added = true; // 중복 추가 방지 + '담음' 시각 피드백
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final place = widget.place;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Card(
@@ -537,10 +653,22 @@ class _PlaceCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              place.name,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    place.name,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                _AddButton(
+                  added: _added,
+                  adding: _adding,
+                  onPressed: _handleAdd,
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             Wrap(
@@ -667,6 +795,149 @@ class _MetaChip extends StatelessWidget {
         const SizedBox(width: 4),
         Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
+    );
+  }
+}
+
+/// 상단 '여행 일정' 타임라인 — 담은 장소가 1 → 2 → 3 순서로 가로로 쌓인다.
+/// 사용자가 "일정에 추가"를 누를 때마다 여기 칩이 늘어나 일정이 만들어지는 모습을 보여준다.
+class _TimelineBar extends StatelessWidget {
+  final List<_ScheduleItem> items;
+  const _TimelineBar({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      color: scheme.surfaceContainerLow,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.route, size: 16, color: scheme.primary),
+              const SizedBox(width: 6),
+              Text('내 여행 일정',
+                  style: theme.textTheme.labelLarge
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(width: 6),
+              Text('(${items.length})',
+                  style: theme.textTheme.labelMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 40,
+            child: items.isEmpty
+                ? Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '추천 카드의 "담기"를 누르면 여기에 일정이 쌓여요.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  )
+                : ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Icon(Icons.chevron_right,
+                          size: 18, color: scheme.onSurfaceVariant),
+                    ),
+                    itemBuilder: (context, i) => _TimelineChip(
+                      index: i + 1,
+                      label: items[i].placeName,
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineChip extends StatelessWidget {
+  final int index;
+  final String label;
+  const _TimelineChip({required this.index, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 10,
+            backgroundColor: scheme.primary,
+            child: Text('$index',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: scheme.onPrimary)),
+          ),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 120),
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 추천 카드 우상단의 '일정에 추가' 버튼 — 담기 전/담는 중/담음 3상태.
+class _AddButton extends StatelessWidget {
+  final bool added;
+  final bool adding;
+  final VoidCallback onPressed;
+  const _AddButton({
+    required this.added,
+    required this.adding,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (adding) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: SizedBox(
+            width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (added) {
+      return TextButton.icon(
+        onPressed: null,
+        icon: const Icon(Icons.check_circle, size: 18),
+        label: const Text('담음'),
+      );
+    }
+    return FilledButton.tonalIcon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.add, size: 18),
+      label: const Text('담기'),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        visualDensity: VisualDensity.compact,
+      ),
     );
   }
 }

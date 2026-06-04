@@ -124,6 +124,10 @@ deploy_lambda "polylog-fn-recommend" \
   "$(get_s3_key FnRecommend)" \
   "app.lambda_handler" 30 128
 
+deploy_lambda "polylog-fn-schedule" \
+  "$(get_s3_key FnSchedule)" \
+  "app.lambda_handler" 10 128
+
 # ────────────────────────────────────────────
 # 5-1. fn-recommend 환경변수 주입 (Google Places 키)
 #   update-function-code 는 코드만 갱신하고 환경변수는 건드리지 않는다.

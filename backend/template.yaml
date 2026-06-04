@@ -71,6 +71,31 @@ Resources:
             Path: /recommend
             Method: post
 
+  # 일정 관리(서브3 MVP-A) — 추천 장소를 polylog-schedules 에 저장/조회.
+  # Bedrock 호출 없이 DynamoDB PutItem/Query 만. SafeRole-polylog 가 polylog* 권한 보유(ADR-012).
+  FnSchedule:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: polylog-fn-schedule
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
+      CodeUri: src/handlers/schedule/
+      Handler: app.lambda_handler
+      Tags:
+        group: polylog
+      Events:
+        Add:       # POST /schedule — 일정에 추가
+          Type: Api
+          Properties:
+            RestApiId: !Ref PolylogApi
+            Path: /schedule
+            Method: post
+        List:      # GET /schedule?trip_id=demo-trip — 타임라인 조회
+          Type: Api
+          Properties:
+            RestApiId: !Ref PolylogApi
+            Path: /schedule
+            Method: get
+
 # 배포 완료 수 영수증/안내판
 Outputs: # 외부에서 접근 가능한 진짜 URL과 설명을 제공하는 출력값
   ApiUrl:
@@ -82,3 +107,6 @@ Outputs: # 외부에서 접근 가능한 진짜 URL과 설명을 제공하는 �
   RecommendUrl:
     Description: AI 장소 추천 엔드포인트 (POST)
     Value: !Sub https://${PolylogApi}.execute-api.${AWS::Region}.amazonaws.com/dev/recommend
+  ScheduleUrl:
+    Description: 일정 추가(POST)/조회(GET) 엔드포인트
+    Value: !Sub https://${PolylogApi}.execute-api.${AWS::Region}.amazonaws.com/dev/schedule
