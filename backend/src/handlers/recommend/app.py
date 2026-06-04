@@ -66,20 +66,84 @@ _FIELD_MASK = ",".join(
     )
 )
 
-# 한국어 카테고리 → Google Places type. 미지의 카테고리는 None → 타입 필터 없이 검색.
+# 한국어 카테고리 → Google Places type. 칩/명시 카테고리의 빠른 경로.
+# (자연어는 _resolve_intent 가 AI 로 더 넓게 처리하므로, 여기는 흔한 것만 둔다.)
 _CATEGORY_TO_TYPE = {
-    "맛집": "restaurant",
-    "음식점": "restaurant",
-    "식당": "restaurant",
-    "숙소": "lodging",
-    "호텔": "lodging",
-    "관광지": "tourist_attraction",
-    "명소": "tourist_attraction",
-    "카페": "cafe",
+    # 음식·음료
+    "맛집": "restaurant", "음식점": "restaurant", "식당": "restaurant",
+    "카페": "cafe", "커피": "cafe", "술집": "bar", "바": "bar",
+    "베이커리": "bakery", "빵집": "bakery", "디저트": "dessert_shop",
+    "아이스크림": "ice_cream_shop",
+    # 숙소
+    "숙소": "lodging", "호텔": "hotel", "모텔": "motel",
+    "게스트하우스": "guest_house", "호스텔": "hostel", "리조트": "resort_hotel",
+    # 관광·문화
+    "관광지": "tourist_attraction", "명소": "tourist_attraction",
+    "박물관": "museum", "미술관": "art_gallery", "공원": "park",
+    "동물원": "zoo", "수족관": "aquarium", "놀이공원": "amusement_park",
+    # 쇼핑·생활
+    "편의점": "convenience_store", "마트": "supermarket", "슈퍼": "supermarket",
+    "쇼핑몰": "shopping_mall", "백화점": "department_store", "서점": "book_store",
+    "약국": "pharmacy", "꽃집": "florist",
+    # 의료·금융·서비스
+    "병원": "hospital", "은행": "bank", "atm": "atm", "우체국": "post_office",
+    "미용실": "hair_salon", "헬스장": "gym", "스파": "spa",
+    # 교통
+    "지하철역": "subway_station", "기차역": "train_station",
+    "버스정류장": "bus_station", "공항": "airport", "주유소": "gas_station",
+    "주차장": "parking",
+    # 여가
+    "영화관": "movie_theater", "클럽": "night_club", "노래방": "karaoke",
+    "볼링장": "bowling_alley",
 }
 
-# 자연어 추출이 못 좁혔을 때 사용자에게 제시할 표준 카테고리 칩.
-_CLARIFY_SUGGESTIONS = ["맛집", "숙소", "관광지", "카페"]
+# 자연어 추출이 못 좁혔을 때 제시할 칩(모두 _CATEGORY_TO_TYPE 에 있어야 함 — 탭=category 재요청).
+_CLARIFY_SUGGESTIONS = ["맛집", "카페", "편의점", "숙소", "관광지"]
+
+# searchNearby 의 includedTypes 로 허용되는 Google Places(New) Table A 타입(검증용).
+# 여기에 없는 희귀 타입을 AI 가 내놓으면 키워드 텍스트 검색으로 우회한다.
+_VALID_PLACE_TYPES = {
+    # 음식·음료
+    "restaurant", "cafe", "coffee_shop", "bar", "bakery", "meal_takeaway",
+    "meal_delivery", "fast_food_restaurant", "ice_cream_shop", "dessert_shop",
+    "dessert_restaurant", "sandwich_shop", "pub", "wine_bar", "tea_house",
+    "japanese_restaurant", "korean_restaurant", "chinese_restaurant",
+    "italian_restaurant", "ramen_restaurant", "sushi_restaurant",
+    "pizza_restaurant", "hamburger_restaurant", "seafood_restaurant",
+    "steak_house", "barbecue_restaurant", "vegetarian_restaurant",
+    "thai_restaurant", "vietnamese_restaurant", "indian_restaurant",
+    "mexican_restaurant", "french_restaurant", "buffet_restaurant",
+    "breakfast_restaurant", "brunch_restaurant",
+    # 숙소
+    "hotel", "lodging", "motel", "hostel", "guest_house", "resort_hotel",
+    "bed_and_breakfast", "campground", "rv_park", "extended_stay_hotel",
+    # 관광·문화·자연
+    "tourist_attraction", "museum", "art_gallery", "park", "national_park",
+    "zoo", "aquarium", "amusement_park", "amusement_center", "historical_landmark",
+    "monument", "botanical_garden", "garden", "beach", "wildlife_park",
+    "cultural_center", "performing_arts_theater", "observation_deck",
+    # 쇼핑·생활
+    "convenience_store", "supermarket", "grocery_store", "shopping_mall",
+    "department_store", "book_store", "clothing_store", "electronics_store",
+    "shoe_store", "jewelry_store", "furniture_store", "hardware_store",
+    "liquor_store", "market", "florist", "gift_shop", "pharmacy", "drugstore",
+    "pet_store", "sporting_goods_store",
+    # 의료
+    "hospital", "doctor", "dentist", "physiotherapist", "medical_lab",
+    # 금융·공공·서비스
+    "bank", "atm", "post_office", "city_hall", "police", "fire_station",
+    "embassy", "library", "courthouse", "local_government_office",
+    "hair_salon", "beauty_salon", "spa", "gym", "fitness_center",
+    "laundry", "car_repair", "car_wash", "car_rental",
+    # 교통
+    "subway_station", "train_station", "transit_station", "bus_station",
+    "bus_stop", "light_rail_station", "airport", "gas_station", "parking",
+    "taxi_stand", "ferry_terminal", "rest_stop",
+    # 여가·종교
+    "movie_theater", "night_club", "casino", "karaoke", "bowling_alley",
+    "stadium", "tourist_information_center", "church", "mosque",
+    "hindu_temple", "synagogue", "place_of_worship",
+}
 
 _DEFAULT_RADIUS_M = 1500     # 도보권(약 1.5km) 기본 반경
 _MAX_RADIUS_M = 50000        # Places(New) 허용 상한
@@ -116,36 +180,50 @@ def lambda_handler(event, context):
     category = (body.get("category") or "").strip()
     query = (body.get("query") or "").strip()
 
-    # 카테고리 확정: 명시 category 우선, 없으면 자연어 query 에서 추출.
-    if not category:
-        if query:
-            category, clarify = _extract_category(query, language)
-            if not category:
-                return _resp(200, {
-                    "type": "clarify",
-                    "message": clarify or "어떤 곳을 찾아드릴까요?",
-                    "suggestions": _CLARIFY_SUGGESTIONS,
-                })
-        else:
-            return _resp(400, {"error": "category 또는 query 중 하나는 필수입니다."})
+    # 카테고리/타입 확정:
+    #  - 명시 category(칩) → 사전으로 빠르게 매핑(없으면 None → 키워드 검색).
+    #  - 자연어 query → AI 가 Google 타입을 추정. 너무 모호하면 clarify(되묻기).
+    if category:
+        place_type = _category_to_type(category)
+        category_label = category
+        keyword = category
+    elif query:
+        place_type, label, clarify = _resolve_intent(query, language)
+        if not place_type:
+            return _resp(200, {
+                "type": "clarify",
+                "message": clarify or "어떤 곳을 찾아드릴까요?",
+                "suggestions": _CLARIFY_SUGGESTIONS,
+            })
+        category_label = label or query
+        keyword = label or query
+    else:
+        return _resp(400, {"error": "category 또는 query 중 하나는 필수입니다."})
 
-    place_type = _category_to_type(category)
+    # 알려진 타입만 정밀 필터(includedTypes)에 쓰고, 그 외엔 키워드 텍스트 검색으로 우회.
+    search_type = place_type if place_type in _VALID_PLACE_TYPES else None
 
     lat, lng = body.get("lat"), body.get("lng")
     location_text = (body.get("location") or "").strip()
-    # 검색어: 자연어 query 가 있으면 그대로, 없으면 카테고리로.
-    search_term = query or category
+    radius = _clamp_radius(body.get("radius"))
 
     # 입력 분기: 좌표가 있으면 주변검색, 없으면 텍스트검색(폴백)
     try:
         if _is_number(lat) and _is_number(lng):
-            radius = _clamp_radius(body.get("radius"))
-            places = search_nearby_places(
-                float(lat), float(lng), place_type, radius, language, api_key
-            )
+            flat, flng = float(lat), float(lng)
+            if search_type:
+                places = search_nearby_places(
+                    flat, flng, search_type, radius, language, api_key
+                )
+            else:
+                # 타입을 못 정하면(희귀 카테고리) 키워드로 위치 편향 텍스트 검색.
+                places = search_text_places(
+                    keyword, None, language, api_key,
+                    origin_lat=flat, origin_lng=flng, radius=radius,
+                )
         elif location_text:
             places = search_text_places(
-                f"{location_text} {search_term}".strip(), place_type, language, api_key
+                f"{location_text} {keyword}".strip(), search_type, language, api_key
             )
         else:
             return _resp(400, {"error": "lat/lng 또는 location 중 하나는 필수입니다."})
@@ -159,7 +237,7 @@ def lambda_handler(event, context):
         return _resp(200, {
             "type": "result",
             "recommendation_id": str(uuid.uuid4()),
-            "category": category,
+            "category": category_label,
             "ai_summary": "조건에 맞는 장소를 찾지 못했어요. 반경을 넓히거나 다른 카테고리를 시도해 보세요.",
             "places": [],
         })
@@ -168,7 +246,7 @@ def lambda_handler(event, context):
 
     # Bedrock 으로 전체 요약 + 장소별 리뷰 요약(좋은 점/아쉬운 점) 생성.
     # 실패해도 장소 목록은 그대로 반환(요약만 빈 값).
-    ai_summary, details = _build_summaries(top_places, category, language)
+    ai_summary, details = _build_summaries(top_places, category_label, language)
     for p in top_places:
         d = details.get(p["place_id"]) or {}
         p["review_good"] = d.get("good", "")
@@ -179,7 +257,7 @@ def lambda_handler(event, context):
     return _resp(200, {
         "type": "result",
         "recommendation_id": str(uuid.uuid4()),
-        "category": category,
+        "category": category_label,
         "ai_summary": ai_summary,
         "places": top_places,
     })
@@ -218,10 +296,13 @@ def search_nearby_places(lat, lng, place_type, radius, language, api_key):
     ]
 
 
-def search_text_places(text_query, place_type, language, api_key):
-    """GPS 가 없을 때의 폴백 — '신주쿠 라멘' 같은 텍스트로 검색.
+def search_text_places(text_query, place_type, language, api_key,
+                       origin_lat=None, origin_lng=None, radius=None):
+    """키워드 텍스트 검색 — '신주쿠 라멘'·'편의점' 같은 자유 텍스트로 검색.
 
-    좌표 기준점이 없으므로 distance_m 은 None 으로 둔다.
+    두 용도:
+      ① GPS 가 없을 때의 폴백(origin 없음 → distance_m=None).
+      ② GPS 는 있는데 타입을 못 정한 희귀 카테고리(origin 줌 → 위치 편향 + 거리 계산).
     """
     payload = {
         "textQuery": text_query,
@@ -230,10 +311,17 @@ def search_text_places(text_query, place_type, language, api_key):
     }
     if place_type:
         payload["includedType"] = place_type
+    if origin_lat is not None and origin_lng is not None:
+        payload["locationBias"] = {
+            "circle": {
+                "center": {"latitude": origin_lat, "longitude": origin_lng},
+                "radius": radius or _DEFAULT_RADIUS_M,
+            }
+        }
 
     data = _places_post(_PLACES_TEXT_URL, payload, api_key)
     return [
-        _normalize_place(raw, origin_lat=None, origin_lng=None)
+        _normalize_place(raw, origin_lat=origin_lat, origin_lng=origin_lng)
         for raw in data.get("places", [])
     ]
 
@@ -304,12 +392,8 @@ def _extract_reviews(raw_reviews):
 
 
 # ──────────────────────────────────────────────────────────────
-# 순수 로직(테스트 대상)
+# 순수 로직(테스트 대상)  — _category_to_type 은 _resolve_intent 근처에 정의
 # ──────────────────────────────────────────────────────────────
-def _category_to_type(category):
-    return _CATEGORY_TO_TYPE.get((category or "").strip())
-
-
 def _clamp_radius(value):
     if not _is_number(value):
         return _DEFAULT_RADIUS_M
@@ -345,33 +429,44 @@ def _is_number(v):
 # ──────────────────────────────────────────────────────────────
 # Bedrock — ① 자연어→카테고리 추출  ② 리뷰 요약(JSON 강제, 방어적 파싱)
 # ──────────────────────────────────────────────────────────────
-def _extract_category(query, language):
-    """자연어 발화에서 표준 카테고리 하나를 고른다.
+def _resolve_intent(query, language):
+    """자연어 발화에서 Google Places 타입을 추정한다.
 
-    반환: (category, clarify_message)
-      - 한 카테고리로 좁혀지면 (그 카테고리, "")
-      - 모호하면 ("", 되물을 질문 문자열)
-    Bedrock 실패 시에도 앱이 죽지 않도록 ("", 기본 질문)으로 안전 폴백.
+    반환: (place_type, label, clarify_message)
+      - 장소 종류를 알아내면 (Google Places 타입(snake_case), 한국어 라벨, "")
+        · 타입이 검증목록에 없어도 그대로 반환 → 핸들러가 키워드 검색으로 우회.
+      - 너무 모호하면 ("", "", 되물을 질문)
+    Bedrock 실패 시에도 앱이 죽지 않도록 ("", "", "")로 안전 폴백(→ 핸들러가 되묻기).
     """
     prompt = (
-        "사용자의 여행 발화에서 장소 카테고리를 하나만 고르세요.\n"
-        f"허용 카테고리: {', '.join(_CLARIFY_SUGGESTIONS)}\n"
+        "당신은 여행 도우미입니다. 사용자가 찾으려는 장소를 Google Places API 의 "
+        "type(영문 snake_case) 하나로 변환하세요.\n"
+        "예) '편의점'→convenience_store, '약국'→pharmacy, '라멘집'→ramen_restaurant, "
+        "'지하철역'→subway_station, '노래방'→karaoke, '조용한 카페'→cafe.\n"
         f'사용자 발화: "{query}"\n\n'
         "다음 형식의 JSON 만 출력하세요(설명·마크다운·코드펜스 금지):\n"
-        '{"category":"맛집|숙소|관광지|카페 중 하나, 못 정하면 빈 문자열",'
-        '"message":"category 가 빈 문자열일 때만, 어떤 곳을 찾을지 되묻는 친근한 질문"}\n'
-        f"확실히 한 카테고리로 정할 수 있을 때만 category 를 채우고, 아니면 비우세요. 언어: {language}"
+        '{"type":"google places type(snake_case). 어떤 장소인지 알 수 없으면 빈 문자열",'
+        '"label":"그 장소의 한국어 명칭(예: 편의점)",'
+        '"clarify":"type 이 빈 문자열일 때만, 무엇을 찾을지 되묻는 친근한 한국어 질문"}\n'
+        "장소 종류를 특정할 수 있으면 type 과 label 을 채우세요. "
+        "'여기 여행하고 싶어'처럼 종류를 알 수 없을 때만 type 을 비우고 clarify 를 채웁니다. "
+        f"언어: {language}"
     )
     try:
         parsed = _parse_json_object(_invoke_claude(prompt, max_tokens=256))
     except Exception:  # noqa: BLE001 — 추출 실패는 곧 '되묻기'로 처리
-        return "", ""
+        return "", "", ""
 
-    cat = (parsed.get("category") or "").strip() if isinstance(parsed, dict) else ""
-    msg = (parsed.get("message") or "").strip() if isinstance(parsed, dict) else ""
-    if cat in _CATEGORY_TO_TYPE:
-        return cat, ""
-    return "", msg
+    if not isinstance(parsed, dict):
+        return "", "", ""
+    place_type = (parsed.get("type") or "").strip().lower()
+    label = (parsed.get("label") or "").strip()
+    clarify = (parsed.get("clarify") or "").strip()
+    return place_type, label, clarify
+
+
+def _category_to_type(category):
+    return _CATEGORY_TO_TYPE.get((category or "").strip().lower())
 
 
 def _build_summaries(places, category, language):

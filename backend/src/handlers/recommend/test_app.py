@@ -14,11 +14,20 @@ def test_category_mapping_known():
     assert app._category_to_type("숙소") == "lodging"
     assert app._category_to_type("관광지") == "tourist_attraction"
     assert app._category_to_type("카페") == "cafe"
+    assert app._category_to_type("편의점") == "convenience_store"
+    assert app._category_to_type("약국") == "pharmacy"
+    assert app._category_to_type("ATM") == "atm"  # 대소문자 무관
 
 
 def test_category_mapping_unknown_returns_none():
     assert app._category_to_type("우주여행") is None
     assert app._category_to_type("") is None
+
+
+def test_clarify_suggestions_are_all_mappable():
+    # 칩 라벨은 탭 시 category 로 재요청되므로 반드시 매핑돼 있어야 한다.
+    for s in app._CLARIFY_SUGGESTIONS:
+        assert app._category_to_type(s) is not None
 
 
 # ── radius 클램프 ────────────────────────────────────────────
@@ -158,31 +167,33 @@ def test_build_summaries_bedrock_failure_is_safe(monkeypatch):
     assert summary == "" and details == {}
 
 
-# ── _extract_category: 자연어 → 카테고리 ─────────────────────
-def test_extract_category_resolved(monkeypatch):
+# ── _resolve_intent: 자연어 → Google 타입 ────────────────────
+def test_resolve_intent_resolved(monkeypatch):
     monkeypatch.setattr(
         app, "_invoke_claude",
-        lambda prompt, max_tokens=768: '{"category":"맛집","message":""}',
+        lambda prompt, max_tokens=768:
+            '{"type":"convenience_store","label":"편의점","clarify":""}',
     )
-    cat, msg = app._extract_category("근처 괜찮은 레스토랑 있어?", "ko")
-    assert cat == "맛집" and msg == ""
+    t, label, clarify = app._resolve_intent("근처 편의점 찾아줘", "ko")
+    assert t == "convenience_store" and label == "편의점" and clarify == ""
 
 
-def test_extract_category_ambiguous_returns_clarify(monkeypatch):
+def test_resolve_intent_ambiguous_returns_clarify(monkeypatch):
     monkeypatch.setattr(
         app, "_invoke_claude",
-        lambda prompt, max_tokens=768: '{"category":"","message":"숙소를 찾을까요?"}',
+        lambda prompt, max_tokens=768:
+            '{"type":"","label":"","clarify":"숙소를 찾을까요?"}',
     )
-    cat, msg = app._extract_category("여기 여행하고 싶어", "ko")
-    assert cat == "" and "숙소" in msg
+    t, label, clarify = app._resolve_intent("여기 여행하고 싶어", "ko")
+    assert t == "" and "숙소" in clarify
 
 
-def test_extract_category_bedrock_failure_is_safe(monkeypatch):
+def test_resolve_intent_bedrock_failure_is_safe(monkeypatch):
     def boom(prompt, max_tokens=768):
         raise RuntimeError("down")
     monkeypatch.setattr(app, "_invoke_claude", boom)
-    cat, msg = app._extract_category("아무거나", "ko")
-    assert cat == "" and msg == ""
+    t, label, clarify = app._resolve_intent("아무거나", "ko")
+    assert t == "" and label == "" and clarify == ""
 
 
 # ── search_nearby_places: 네트워크 모킹 ──────────────────────
@@ -258,30 +269,64 @@ def test_handler_happy_path_with_gps(monkeypatch):
     assert "recommendation_id" in body
 
 
-def test_handler_natural_language_query_resolves_category(monkeypatch):
+def test_handler_natural_language_query_resolves_type(monkeypatch):
     monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "K")
-    monkeypatch.setattr(app, "_places_post", lambda u, p, k: {"places": [_RAW_PLACE]})
+    captured = {}
+
+    def fake_post(u, p, k):
+        captured["payload"] = p
+        return {"places": [_RAW_PLACE]}
 
     def fake_claude(prompt, max_tokens=768):
-        # 첫 호출(추출) vs 둘째 호출(요약)을 프롬프트 내용으로 구분
-        if "장소 카테고리를 하나만" in prompt:
-            return '{"category":"맛집","message":""}'
-        return '{"ai_summary":"맛집","places":{"ChIJxxxx":{"good":"좋아요","bad":"-"}}}'
+        # 의도 추출 호출 vs 요약 호출을 프롬프트 내용으로 구분
+        if "Google Places API" in prompt:
+            return '{"type":"convenience_store","label":"편의점","clarify":""}'
+        return '{"ai_summary":"근처 편의점","places":{"ChIJxxxx":{"good":"가까워요","bad":"-"}}}'
 
+    monkeypatch.setattr(app, "_places_post", fake_post)
     monkeypatch.setattr(app, "_invoke_claude", fake_claude)
     r = app.lambda_handler(_event({"lat": 35.6938, "lng": 139.7034,
-                                   "query": "근처 괜찮은 레스토랑"}), None)
+                                   "query": "근처 편의점 찾아줘"}), None)
     assert r["statusCode"] == 200
     body = json.loads(r["body"])
     assert body["type"] == "result"
-    assert body["category"] == "맛집"
+    assert body["category"] == "편의점"
+    # 알려진 타입이므로 정밀 주변검색(includedTypes)으로 나갔는지
+    assert captured["payload"]["includedTypes"] == ["convenience_store"]
+
+
+def test_handler_unknown_type_falls_back_to_text_search(monkeypatch):
+    monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "K")
+    captured = {}
+
+    def fake_post(u, p, k):
+        captured["url"] = u
+        captured["payload"] = p
+        return {"places": [_RAW_PLACE]}
+
+    def fake_claude(prompt, max_tokens=768):
+        if "Google Places API" in prompt:
+            # 검증목록에 없는 희귀 타입을 모델이 내놓은 상황
+            return '{"type":"made_up_type","label":"방탈출카페","clarify":""}'
+        return '{"ai_summary":"방탈출","places":{"ChIJxxxx":{"good":"재밌어요","bad":"-"}}}'
+
+    monkeypatch.setattr(app, "_places_post", fake_post)
+    monkeypatch.setattr(app, "_invoke_claude", fake_claude)
+    r = app.lambda_handler(_event({"lat": 35.6938, "lng": 139.7034,
+                                   "query": "근처 방탈출카페"}), None)
+    assert r["statusCode"] == 200
+    # 타입 검증 실패 → 키워드 텍스트 검색(searchText)으로 우회 + 위치 편향
+    assert captured["url"] == app._PLACES_TEXT_URL
+    assert captured["payload"]["textQuery"] == "방탈출카페"
+    assert "locationBias" in captured["payload"]
 
 
 def test_handler_ambiguous_query_returns_clarify(monkeypatch):
     monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "K")
     monkeypatch.setattr(
         app, "_invoke_claude",
-        lambda prompt, max_tokens=768: '{"category":"","message":"맛집을 찾을까요, 숙소를 찾을까요?"}',
+        lambda prompt, max_tokens=768:
+            '{"type":"","label":"","clarify":"맛집을 찾을까요, 숙소를 찾을까요?"}',
     )
     r = app.lambda_handler(_event({"lat": 35.6938, "lng": 139.7034,
                                    "query": "여기 여행하고 싶어"}), None)
