@@ -35,6 +35,7 @@
 - 환경변수 GOOGLE_PLACES_API_KEY 주입 필요(deploy.sh). 키 없으면 검색 없이 대화만 동작.
 """
 import json
+import logging
 import math
 import os
 import urllib.error
@@ -46,6 +47,9 @@ from decimal import Decimal
 import boto3
 from boto3.dynamodb.conditions import Key
 
+_log = logging.getLogger()
+_log.setLevel(logging.INFO)
+
 _dynamodb = boto3.resource("dynamodb", region_name="ap-northeast-2")
 _TABLE_NAME = os.environ.get("SCHEDULES_TABLE", "polylog-schedules")
 _CHATS_TABLE = os.environ.get("CHATS_TABLE", "polylog-chats")
@@ -56,12 +60,12 @@ _bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
 #   ① 의도 판단(검색?/편집?/대화? 단순 분류) → Haiku(빠름, 이미 모델 액세스 승인됨).
 #   ② 동선 큐레이션(진짜 '계획' 추론)        → Sonnet(품질↑, Opus보다 빠르고 저렴).
 #   ⚠️ Sonnet 은 Bedrock 모델 액세스 승인 필요(미승인 → AccessDenied → 제안 안 나옴).
-#   직접 invoke 가 막히면 인퍼런스 프로파일 `us.anthropic.claude-3-5-sonnet-20241022-v2:0`
-#   로 PLANNER_MODEL_ID env 만 바꾸면 됨(코드 수정 불필요).
+#   기본값은 Claude 3.5 Sonnet '인퍼런스 프로파일'(us.) — 3.5 Sonnet 은 보통 on-demand 직접
+#   호출이 막혀 프로파일 ID 가 필요하다. 다른 모델로 바꾸려면 PLANNER_MODEL_ID env 만 교체.
 _INTENT_MODEL_ID = os.environ.get(
     "INTENT_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
 _CURATE_MODEL_ID = os.environ.get(
-    "PLANNER_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+    "PLANNER_MODEL_ID", "us.anthropic.claude-3-5-sonnet-20241022-v2:0")
 
 _PLACES_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
 # 플래너는 별점·거리·주소만 쓰므로 reviews 같은 비싼 필드는 뺀다(토큰·요금 절약).
@@ -236,6 +240,9 @@ def _plan_intent(message, history, schedule, language):
         '"edits":[{"op":"remove","index":2},{"op":"reorder","order":[1,3,2]}]}\n'
         "규칙:\n"
         "- 사용자가 추천/추가/짜줘/넣어줘/다른 곳 등 '새 장소'를 원하면 search 를 채운다.\n"
+        "- ⭐ 되묻기는 최소화한다. 장소를 원하는 기미가 조금이라도 있으면 분위기·시간을 "
+        "일일이 캐묻지 말고 합리적으로 가정해 바로 search 를 채운다(예: '일정 짜줘'→search='근처 가볼만한 곳'). "
+        "정말 무엇을 원하는지 전혀 알 수 없을 때만 reply 로 딱 한 번 되묻고 search 는 비운다.\n"
         "- 빼줘/삭제/순서 바꿔/먼저/나중에 등 '기존 일정 편집'은 edits 에 넣는다"
         "(index·order 는 위 현재 일정 번호 1-based).\n"
         "- 해당 없으면 search=\"\" 이고 edits=[].\n"
@@ -472,10 +479,14 @@ def _haversine(lat1, lng1, lat2, lng2):
 
 # ─────────────────────────── Bedrock ───────────────────────────
 def _try_claude(prompt, max_tokens, model_id):
-    """Bedrock 호출 — 실패해도 앱이 죽지 않도록 빈 문자열로 폴백."""
+    """Bedrock 호출 — 실패해도 앱이 죽지 않도록 빈 문자열로 폴백.
+
+    단, 실패 원인은 CloudWatch 에 남긴다(AccessDenied/Validation 등을 눈으로 확인해야
+    모델 ID·액세스 문제를 진단할 수 있다). 예전엔 조용히 삼켜 '살펴볼게요'만 남았었다."""
     try:
         return _invoke_claude(prompt, max_tokens, model_id)
-    except Exception:  # noqa: BLE001 — 모델/네트워크 오류는 빈 응답으로 흡수
+    except Exception as exc:  # noqa: BLE001 — 모델/네트워크 오류는 빈 응답으로 흡수
+        _log.warning("Bedrock 호출 실패 (model=%s): %s", model_id, exc)
         return ""
 
 
