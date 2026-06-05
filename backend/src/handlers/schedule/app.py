@@ -60,12 +60,12 @@ _bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
 #   ① 의도 판단(검색?/편집?/대화? 단순 분류) → Haiku(빠름, 이미 모델 액세스 승인됨).
 #   ② 동선 큐레이션(진짜 '계획' 추론)        → Sonnet(품질↑, Opus보다 빠르고 저렴).
 #   ⚠️ Sonnet 은 Bedrock 모델 액세스 승인 필요(미승인 → AccessDenied → 제안 안 나옴).
-#   기본값은 Claude 3.5 Sonnet '인퍼런스 프로파일'(us.) — 3.5 Sonnet 은 보통 on-demand 직접
+#   기본값은 Claude Sonnet 4.6 '인퍼런스 프로파일'(us.) — 최신 모델은 on-demand 직접
 #   호출이 막혀 프로파일 ID 가 필요하다. 다른 모델로 바꾸려면 PLANNER_MODEL_ID env 만 교체.
 _INTENT_MODEL_ID = os.environ.get(
     "INTENT_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
 _CURATE_MODEL_ID = os.environ.get(
-    "PLANNER_MODEL_ID", "us.anthropic.claude-3-5-sonnet-20241022-v2:0")
+    "PLANNER_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
 _PLACES_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
 # 플래너는 별점·거리·주소만 쓰므로 reviews 같은 비싼 필드는 뺀다(토큰·요금 절약).
