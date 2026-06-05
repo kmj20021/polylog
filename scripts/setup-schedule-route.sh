@@ -86,6 +86,7 @@ wire_method() {
 
 wire_method POST
 wire_method GET
+wire_method DELETE
 
 # ── 4. 스테이지 재배포 ────────────────────────────────────────
 log "dev 스테이지 재배포"

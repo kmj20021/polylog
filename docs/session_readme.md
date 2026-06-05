@@ -3,7 +3,7 @@
 > **다음 진도를 나가기 전에 한 번씩 읽으세요.** 다른 기능을 만들다 참조할 "이미 만들어 둔 것들"(DB·람다·S3·API·역할)을 한곳에 모은 빠른 참조표입니다.
 > 새 자원을 만들면 **여기에 한 줄 추가**해서 다음 세션이 헤매지 않게 합니다. (상세 결정 근거는 `ADR.md`, 단계별 핸드오프는 `session-handoff.md`)
 
-마지막 갱신: 2026-06-05
+마지막 갱신: 2026-06-05 (fn-schedule 대화형 플래너 추가)
 
 ---
 
@@ -11,7 +11,7 @@
 | 용도 | 리전 |
 |---|---|
 | 거의 모든 자원(Lambda·DynamoDB·API GW·S3) | **ap-northeast-2 (서울)** |
-| Bedrock(Claude 3 Haiku)만 | **us-east-1** (모델 액세스 승인 리전) |
+| Bedrock | **us-east-1** (모델 액세스 승인 리전). 추천/요약=Claude 3 Haiku. **플래너(fn-schedule)=하이브리드**: 의도판단=Haiku, 동선 큐레이션=**Claude 3.5 Sonnet**(`PLANNER_MODEL_ID` env로 교체, Sonnet 모델 액세스 승인 필요). Opus는 29초 천장·비용 때문에 미사용 |
 
 ## 2. DynamoDB — 7종 모두 생성됨 (PAY_PER_REQUEST, 서울)
 > 접근 통제는 **이름 prefix `polylog-`** 기반(태그 불필요). 비키 컬럼은 스키마리스.
@@ -24,7 +24,7 @@
 | `polylog-menus` | trip_id | created_at | 메뉴판 분석 이력 |
 | `polylog-receipts` | trip_id | occurred_at | 영수증/지출 (plan의 expenses) |
 | `polylog-schedules` | trip_id | start_time | 일정 (ADR-014 단일 테이블) |
-| `polylog-chats` | trip_id | created_at | 대화 이력 (Bedrock 컨텍스트) |
+| `polylog-chats` | trip_id | created_at | 대화 이력 (fn-schedule 플래너가 기억용으로 사용) |
 
 > 키 설계 사유는 ADR-014/015, 생성 명령 원본은 `docs/archive/mk_DynamoDB_logic.md`.
 > PoC 고정 trip_id = **`demo-trip`** (로그인/Trip 생성 전까지).
@@ -34,13 +34,13 @@
 |---|---|---|---|
 | `polylog-fn-health` | GET /health | ✅ 배포 | 배포 파이프라인 헬스체크 |
 | `polylog-fn-recommend` | POST /recommend | ✅ 배포 | GPS+Places(New)+Bedrock, Timeout 30s, env `GOOGLE_PLACES_API_KEY` |
-| `polylog-fn-schedule` | POST·GET /schedule | ✅ 배포 | 일정 추가/조회, DynamoDB `polylog-schedules`. /schedule 라우트 수동 연결 완료(setup-schedule-route.sh) |
+| `polylog-fn-schedule` | POST·GET·DELETE /schedule | ✅ 배포(재배포 필요) | ①CRUD: 추가/조회/삭제(`polylog-schedules`) ②**대화형 플래너**: `POST {action:"chat"}` → 이전 대화(`polylog-chats`)+현재 일정 기억, Places 검색, Bedrock 2콜로 동선 제안·대화 편집. **Timeout 30s, env `GOOGLE_PLACES_API_KEY` 필요**. chat 은 기존 POST 라우트에 분기(새 라우트 불필요) |
 | `polylog-fn-authorizer` | (Lambda Authorizer) | ⬜ 코드만·미배포 | Phase 4 인증(JWT). 현재 API auth=NONE |
 
 ## 4. API Gateway
 - 이름 `polylog-api`, REST, 스테이지 **dev**
 - **Base URL**: `https://mvlllsq6xj.execute-api.ap-northeast-2.amazonaws.com/dev`
-- 경로: `/health`(GET) · `/recommend`(POST) · `/schedule`(POST·GET)
+- 경로: `/health`(GET) · `/recommend`(POST) · `/schedule`(POST·GET·DELETE)
 
 ## 5. S3
 | 버킷 | 용도 |

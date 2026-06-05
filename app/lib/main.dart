@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'features/recommend/recommend_screen.dart';
+import 'features/schedule/schedule_screen.dart';
 
 void main() => runApp(const PolylogApp());
 
@@ -35,7 +36,7 @@ class _HomeShellState extends State<HomeShell> {
   static const _tabs = <Widget>[
     _PlaceholderTab(title: '홈', icon: Icons.home_outlined),
     RecommendScreen(),
-    _PlaceholderTab(title: '여행', icon: Icons.map_outlined),
+    ScheduleScreen(),
     _PlaceholderTab(title: '내 정보', icon: Icons.person_outline),
   ];
 
