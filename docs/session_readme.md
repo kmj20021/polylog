@@ -3,7 +3,7 @@
 > **다음 진도를 나가기 전에 한 번씩 읽으세요.** 다른 기능을 만들다 참조할 "이미 만들어 둔 것들"(DB·람다·S3·API·역할)을 한곳에 모은 빠른 참조표입니다.
 > 새 자원을 만들면 **여기에 한 줄 추가**해서 다음 세션이 헤매지 않게 합니다. (상세 결정 근거는 `ADR.md`, 단계별 핸드오프는 `session-handoff.md`)
 
-마지막 갱신: 2026-06-04
+마지막 갱신: 2026-06-05
 
 ---
 
@@ -34,7 +34,7 @@
 |---|---|---|---|
 | `polylog-fn-health` | GET /health | ✅ 배포 | 배포 파이프라인 헬스체크 |
 | `polylog-fn-recommend` | POST /recommend | ✅ 배포 | GPS+Places(New)+Bedrock, Timeout 30s, env `GOOGLE_PLACES_API_KEY` |
-| `polylog-fn-schedule` | POST·GET /schedule | 🟡 코드 완료·배포 대기 | 일정 추가/조회, DynamoDB `polylog-schedules` |
+| `polylog-fn-schedule` | POST·GET /schedule | ✅ 배포 | 일정 추가/조회, DynamoDB `polylog-schedules`. /schedule 라우트 수동 연결 완료(setup-schedule-route.sh) |
 | `polylog-fn-authorizer` | (Lambda Authorizer) | ⬜ 코드만·미배포 | Phase 4 인증(JWT). 현재 API auth=NONE |
 
 ## 4. API Gateway
