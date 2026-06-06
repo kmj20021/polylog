@@ -3,7 +3,7 @@
 > **다음 진도를 나가기 전에 한 번씩 읽으세요.** 다른 기능을 만들다 참조할 "이미 만들어 둔 것들"(DB·람다·S3·API·역할)을 한곳에 모은 빠른 참조표입니다.
 > 새 자원을 만들면 **여기에 한 줄 추가**해서 다음 세션이 헤매지 않게 합니다. (상세 결정 근거는 `ADR.md`, 단계별 핸드오프는 `session-handoff.md`)
 
-마지막 갱신: 2026-06-06 (계획 기능 재설계: 지역인식+멀티카테고리 동선 → B-1·B-2 해소 / 드래그 재정렬 reorder / 간헐적 빈 제안 픽스)
+마지막 갱신: 2026-06-06 (여러 '여행(trip)' 생성·관리 추가: /schedule 에 create/list/update/delete_trip 액션 → `polylog-trips` 본격 사용, 앱 홈=내 여행 목록 / 일정·추천 장소명 탭→구글지도 url_launcher)
 
 ---
 
@@ -19,7 +19,7 @@
 | 테이블 | PK | SK | 용도 |
 |---|---|---|---|
 | `polylog-users` | user_id | — | 회원 |
-| `polylog-trips` | trip_id | — | 여행(모든 도메인의 trip_id 발급원·부모) |
+| `polylog-trips` | trip_id | — | 여행(모든 도메인의 trip_id 발급원·부모). **사용 중**: 컬럼 `{trip_id, name, start_date, end_date, created_at}`. fn-schedule 의 trip 액션이 CRUD. PoC=한 사용자 가정 scan(멀티유저 땐 user_id GSI 필요) |
 | `polylog-recommendations` | trip_id | created_at | 추천 누적 이력 |
 | `polylog-menus` | trip_id | created_at | 메뉴판 분석 이력 |
 | `polylog-receipts` | trip_id | occurred_at | 영수증/지출 (plan의 expenses) |
@@ -34,7 +34,7 @@
 |---|---|---|---|
 | `polylog-fn-health` | GET /health | ✅ 배포 | 배포 파이프라인 헬스체크 |
 | `polylog-fn-recommend` | POST /recommend | ✅ 배포 | GPS+Places(New)+Bedrock, Timeout 30s, env `GOOGLE_PLACES_API_KEY` |
-| `polylog-fn-schedule` | POST·GET·DELETE /schedule | ✅ 배포(재배포 필요) | ①CRUD: 추가/조회/삭제(`polylog-schedules`) ②**대화형 플래너(지역인식·멀티카테고리)**: `POST {action:"chat"}` → 이전 대화(`polylog-chats`)+현재 일정 기억. 두뇌(Haiku)가 `{region, searches[], edits}` 판단 → region이 있으면 GPS 편향 없이 그 지역을, 없으면 현재 위치 주변을 검색. searches(관광·식사·카페 등 종류별, ≤4개)를 멀티 텍스트검색해 후보 풀(중복제거)→ 큐레이터(Sonnet)가 종류 섞어 동선 제안 ③**순서 재정렬**: `POST {action:"reorder", trip_id, order:[start_time...]}` → 드래그로 바꾼 새 순서대로 `_rewrite_order`(delete+put 재기록), `{type:"reordered", items}` 반환. **Timeout 30s, env `GOOGLE_PLACES_API_KEY` 필요**. chat·reorder 모두 기존 POST 라우트에 action 분기(새 라우트 불필요) |
+| `polylog-fn-schedule` | POST·GET·DELETE /schedule | ✅ 배포(재배포 필요) | ①CRUD: 추가/조회/삭제(`polylog-schedules`) ②**대화형 플래너(지역인식·멀티카테고리)**: `POST {action:"chat"}` → 이전 대화(`polylog-chats`)+현재 일정 기억. 두뇌(Haiku)가 `{region, searches[], edits}` 판단 → region이 있으면 GPS 편향 없이 그 지역을, 없으면 현재 위치 주변을 검색. searches(관광·식사·카페 등 종류별, ≤4개)를 멀티 텍스트검색해 후보 풀(중복제거)→ 큐레이터(Sonnet)가 종류 섞어 동선 제안 ③**순서 재정렬**: `POST {action:"reorder", trip_id, order:[start_time...]}` → 드래그로 바꾼 새 순서대로 `_rewrite_order`(delete+put 재기록), `{type:"reordered", items}` 반환. ④**여행(trip) 관리**: `POST {action:"create_trip"|"list_trips"|"update_trip"|"delete_trip"}` → `polylog-trips` CRUD(이름·기간). delete_trip 은 딸린 일정·대화까지 cascade 삭제. list_trips 는 scan(PoC 단일유저). **Timeout 30s, env `GOOGLE_PLACES_API_KEY` 필요**. chat·reorder·trip 모두 기존 POST 라우트에 action 분기(새 라우트 불필요) |
 | `polylog-fn-authorizer` | (Lambda Authorizer) | ⬜ 코드만·미배포 | Phase 4 인증(JWT). 현재 API auth=NONE |
 
 ## 4. API Gateway

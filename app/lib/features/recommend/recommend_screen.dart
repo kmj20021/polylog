@@ -12,16 +12,18 @@ import '../../shared/place_chat.dart';
 /// 대화·GPS·카드 렌더링은 모두 [PlaceChat] 가 담당하고, 이 화면은 '담기 → 일정 저장 +
 /// 상단 미리보기 갱신'만 책임진다. (여행 탭의 일정 화면도 같은 [PlaceChat] 를 재사용한다.)
 class RecommendScreen extends StatefulWidget {
-  const RecommendScreen({super.key});
+  /// 어느 여행에 담을지 — '내 여행' 목록에서 선택한 여행이 주입된다.
+  final String tripId;
+  final String tripName;
+
+  const RecommendScreen(
+      {super.key, required this.tripId, required this.tripName});
 
   @override
   State<RecommendScreen> createState() => _RecommendScreenState();
 }
 
 class _RecommendScreenState extends State<RecommendScreen> {
-  /// 로그인/Trip 생성(다른 기능) 전까지 PoC 고정 여행 식별자.
-  static const String _tripId = 'demo-trip';
-
   /// 상단 타임라인에 쌓이는 '담은 일정'(서버 polylog-schedules 와 동기).
   final List<_ScheduleItem> _timeline = [];
 
@@ -36,7 +38,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
     try {
       final res = await DioClient().get<Map<String, dynamic>>(
         '/schedule',
-        queryParameters: {'trip_id': _tripId},
+        queryParameters: {'trip_id': widget.tripId},
       );
       final raw = (res.data?['items'] as List?) ?? const [];
       if (!mounted) return;
@@ -59,7 +61,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
       await DioClient().post<Map<String, dynamic>>(
         '/schedule',
         data: {
-          'trip_id': _tripId,
+          'trip_id': widget.tripId,
           'place_id': p.placeId,
           'place_name': p.name,
           if (p.lat != null) 'latitude': p.lat,
@@ -101,7 +103,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
         '/schedule',
         data: {
           'action': 'reorder',
-          'trip_id': _tripId,
+          'trip_id': widget.tripId,
           'order': _timeline.map((e) => e.startTime).toList(),
         },
       );
@@ -116,7 +118,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('AI 장소 추천')),
+      appBar: AppBar(title: Text(widget.tripName)),
       body: Column(
         children: [
           _TimelineBar(items: _timeline, onReorder: _reorder),

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/dio_client.dart';
+import '../../shared/maps_link.dart';
 import 'schedule_planner.dart';
 
 /// '여행' 탭 — 담아 둔 일정(polylog-schedules)을 세로 타임라인으로 보여주고 관리한다.
@@ -13,16 +14,18 @@ import 'schedule_planner.dart';
 ///   - 조회: GET  /schedule?trip_id=demo-trip   (이미 배포된 fn-schedule)
 ///   - 삭제: DELETE /schedule {trip_id, start_time}  (fn-schedule 신규)
 class ScheduleScreen extends StatefulWidget {
-  const ScheduleScreen({super.key});
+  /// 어느 여행의 일정을 보여줄지 — '내 여행' 목록에서 선택한 여행이 주입된다.
+  final String tripId;
+  final String tripName;
+
+  const ScheduleScreen(
+      {super.key, required this.tripId, required this.tripName});
 
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
-  /// 로그인/Trip 생성 전 PoC 고정 여행 식별자(추천 화면과 동일해야 같은 일정을 본다).
-  static const String _tripId = 'demo-trip';
-
   bool _loading = true;
   String? _error;
   final List<_Schedule> _items = [];
@@ -42,7 +45,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     try {
       final res = await DioClient().get<Map<String, dynamic>>(
         '/schedule',
-        queryParameters: {'trip_id': _tripId},
+        queryParameters: {'trip_id': widget.tripId},
       );
       final raw = (res.data?['items'] as List?) ?? const [];
       if (!mounted) return;
@@ -76,7 +79,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     try {
       await DioClient().delete<Map<String, dynamic>>(
         '/schedule',
-        data: {'trip_id': _tripId, 'start_time': item.startTime},
+        data: {'trip_id': widget.tripId, 'start_time': item.startTime},
       );
       if (!mounted) return;
       setState(() => _items.removeWhere((e) => e.startTime == item.startTime));
@@ -87,6 +90,35 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
       _load(); // 서버 상태와 어긋났을 수 있으니 다시 맞춘다.
+    }
+  }
+
+  /// 손잡이를 끌어 순서를 바꿨을 때: ① 화면에서 먼저 옮겨 즉시 반응시키고
+  /// ② 서버에 '새 순서'(start_time 목록)를 보내 영구 반영, ③ 서버가 다시 매긴
+  /// start_time 으로 동기화한다. 실패하면 서버 상태로 되돌려 어긋남을 막는다.
+  /// (백엔드는 fn-schedule 의 POST {action:"reorder"} 가 처리 — 이미 배포됨.)
+  Future<void> _reorder(int oldIndex, int newIndex) async {
+    // onReorderItem 은 newIndex 를 이미 보정해 준다(직접 -1 안 해도 됨).
+    if (oldIndex == newIndex) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      final moved = _items.removeAt(oldIndex);
+      _items.insert(newIndex, moved);
+    });
+    try {
+      await DioClient().post<Map<String, dynamic>>(
+        '/schedule',
+        data: {
+          'action': 'reorder',
+          'trip_id': widget.tripId,
+          'order': _items.map((e) => e.startTime).toList(),
+        },
+      );
+      await _load(); // 서버가 재부여한 start_time 으로 맞춘다.
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('순서 변경 실패: $e')));
+      _load(); // 서버 상태로 되돌림.
     }
   }
 
@@ -116,7 +148,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('내 여행 일정'),
+        title: Text(widget.tripName),
         actions: [
           IconButton(
             tooltip: '새로고침',
@@ -139,7 +171,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           Expanded(
             flex: 3,
             child: SchedulePlanner(
-              tripId: _tripId,
+              tripId: widget.tripId,
               onScheduleChanged: _load, // 편집 즉시반영/담기 후 타임라인 새로고침
             ),
           ),
@@ -167,11 +199,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         detail: '"추천" 탭에서 마음에 드는 장소의 "담기"를 누르면\n여기에 순서대로 쌓입니다.',
       );
     }
-    return ListView.builder(
+    // 세로 타임라인을 드래그로 재정렬. 밀어서 삭제(Dismissible)와 제스처가 겹치지
+    // 않도록 기본 드래그는 끄고(buildDefaultDragHandles:false), 오른쪽 '손잡이'에서만
+    // 끌 수 있게 한다(_ScheduleTile 안의 ReorderableDragStartListener).
+    return ReorderableListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       itemCount: _items.length,
+      onReorderItem: _reorder,
+      buildDefaultDragHandles: false,
       itemBuilder: (context, i) => _ScheduleTile(
+        key: ValueKey(_items[i].startTime),
         index: i + 1,
+        listIndex: i,
         item: _items[i],
         isLast: i == _items.length - 1,
         confirmDelete: () => _confirmDelete(_items[i]),
@@ -184,6 +223,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 /// 일정 항목 1개 — polylog-schedules 한 행.
 class _Schedule {
   final String startTime; // SK — 삭제 시 항목을 특정하는 키
+  final String placeId;   // 구글 장소 식별자 — 지도에서 '정확한 그 장소'를 여는 데 쓴다
   final String title;
   final String placeName;
   final String address;
@@ -191,6 +231,7 @@ class _Schedule {
 
   const _Schedule({
     required this.startTime,
+    required this.placeId,
     required this.title,
     required this.placeName,
     required this.address,
@@ -201,6 +242,7 @@ class _Schedule {
     final name = (j['place_name'] ?? '').toString();
     return _Schedule(
       startTime: (j['start_time'] ?? '').toString(),
+      placeId: (j['place_id'] ?? '').toString(),
       title: (j['title'] ?? name).toString(),
       placeName: name,
       address: (j['address'] ?? '').toString(),
@@ -212,19 +254,38 @@ class _Schedule {
 /// 세로 타임라인의 한 줄: 왼쪽 순번 점 + 연결선, 오른쪽 장소 카드.
 /// 스와이프(밀기)로 삭제할 수 있다(Dismissible).
 class _ScheduleTile extends StatelessWidget {
-  final int index;
+  final int index;        // 화면에 보이는 순번(1-based)
+  final int listIndex;    // 드래그 재정렬용 리스트 위치(0-based)
   final _Schedule item;
   final bool isLast;
   final Future<bool> Function() confirmDelete;
   final VoidCallback onDelete;
 
   const _ScheduleTile({
+    super.key,
     required this.index,
+    required this.listIndex,
     required this.item,
     required this.isLast,
     required this.confirmDelete,
     required this.onDelete,
   });
+
+  /// 장소명을 탭했을 때: 구글 지도에서 해당 장소를 연다(place_id 있으면 정확히,
+  /// 없으면 이름검색). 열기에 실패하면 사용자에게 스낵바로 알린다.
+  Future<void> _openMaps(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await openPlaceInMaps(
+      name: item.placeName,
+      placeId: item.placeId,
+      address: item.address,
+    );
+    if (!ok) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('지도를 열 수 없어요')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -271,7 +332,7 @@ class _ScheduleTile extends StatelessWidget {
               ],
             ),
             const SizedBox(width: 12),
-            // 오른쪽: 장소 카드
+            // 오른쪽: 장소 카드 + 드래그 손잡이
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 16),
@@ -287,9 +348,28 @@ class _ScheduleTile extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(item.placeName,
-                            style: theme.textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        // 장소명 탭 → 구글 지도에서 그 장소를 연다. 탭 가능함을 알리려고
+                        // 옆에 작은 지도 아이콘을 붙이고 글자색도 강조색으로 둔다.
+                        InkWell(
+                          onTap: () => _openMaps(context),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(item.placeName,
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: scheme.primary)),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(Icons.map_outlined,
+                                    size: 16, color: scheme.primary),
+                              ],
+                            ),
+                          ),
+                        ),
                         if (item.title.isNotEmpty &&
                             item.title != item.placeName) ...[
                           const SizedBox(height: 2),
@@ -319,6 +399,20 @@ class _ScheduleTile extends StatelessWidget {
                       ],
                     ),
                   ),
+                ),
+              ),
+            ),
+            // 오른쪽 끝 드래그 손잡이 — 여기서만 끌어 순서 변경(밀어서 삭제와 충돌 방지).
+            ReorderableDragStartListener(
+              index: listIndex,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 16),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.drag_handle,
+                        size: 22, color: scheme.onSurfaceVariant),
+                  ],
                 ),
               ),
             ),

@@ -26,6 +26,17 @@ class _FakeTable:
         self.last_query_kwargs = kwargs
         return {"Items": list(self._query_items)}
 
+    def scan(self, **kwargs):
+        # PoC: 한 번에 다 돌려준다(LastEvaluatedKey 없음).
+        return {"Items": list(self._query_items)}
+
+    def get_item(self, Key):
+        # Key 의 모든 필드가 일치하는 첫 항목을 돌려준다(없으면 Item 키 없음).
+        for it in self._query_items:
+            if all(it.get(k) == v for k, v in Key.items()):
+                return {"Item": dict(it)}
+        return {}
+
     def delete_item(self, Key):
         self.deleted_keys.append(Key)
         return {}
@@ -662,3 +673,89 @@ def test_unsupported_method(monkeypatch):
     _install_table(monkeypatch, table)
     resp = app.lambda_handler({"httpMethod": "PUT"}, None)
     assert resp["statusCode"] == 405
+
+
+# ─────────────────────────── 여행(trip) 관리 ───────────────────────────
+def _install_trips(monkeypatch, trips, schedules=None, chats=None):
+    """trips(+필요 시 schedules/chats)를 이름별로 설치."""
+    mapping = {"polylog-trips": trips}
+    if schedules is not None:
+        mapping["polylog-schedules"] = schedules
+    if chats is not None:
+        mapping["polylog-chats"] = chats
+    monkeypatch.setattr(app, "_dynamodb", _FakeResource(trips, mapping))
+
+
+def test_create_trip_stores_name_and_dates(monkeypatch):
+    trips = _FakeTable()
+    _install_trips(monkeypatch, trips)
+    resp = app.lambda_handler(_post({
+        "action": "create_trip", "name": "강원도 여행",
+        "start_date": "2026-02-07", "end_date": "2026-02-09",
+    }), None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["type"] == "trip_created"
+    assert body["trip"]["name"] == "강원도 여행"
+    assert body["trip"]["start_date"] == "2026-02-07"
+    assert body["trip"]["end_date"] == "2026-02-09"
+    assert body["trip"]["trip_id"]          # uuid 발급됨
+    assert len(trips.put_items) == 1
+
+
+def test_create_trip_missing_name_400(monkeypatch):
+    trips = _FakeTable()
+    _install_trips(monkeypatch, trips)
+    resp = app.lambda_handler(_post({"action": "create_trip"}), None)
+    assert resp["statusCode"] == 400
+    assert trips.put_items == []
+
+
+def test_list_trips_sorted_by_start_date(monkeypatch):
+    trips = _FakeTable(query_items=[
+        {"trip_id": "t2", "name": "부산", "start_date": "2026-05-05"},
+        {"trip_id": "t1", "name": "강원", "start_date": "2026-02-07"},
+    ])
+    _install_trips(monkeypatch, trips)
+    resp = app.lambda_handler(_post({"action": "list_trips"}), None)
+    body = json.loads(resp["body"])
+    assert body["type"] == "trips"
+    assert [t["name"] for t in body["items"]] == ["강원", "부산"]
+
+
+def test_update_trip_changes_name(monkeypatch):
+    trips = _FakeTable(query_items=[
+        {"trip_id": "t1", "name": "강원", "start_date": "2026-02-07",
+         "created_at": "x"},
+    ])
+    _install_trips(monkeypatch, trips)
+    resp = app.lambda_handler(_post({
+        "action": "update_trip", "trip_id": "t1", "name": "강원도 겨울 여행"}), None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["trip"]["name"] == "강원도 겨울 여행"
+    assert trips.put_items[-1]["name"] == "강원도 겨울 여행"
+
+
+def test_update_trip_not_found_404(monkeypatch):
+    trips = _FakeTable(query_items=[])
+    _install_trips(monkeypatch, trips)
+    resp = app.lambda_handler(_post({
+        "action": "update_trip", "trip_id": "ghost", "name": "x"}), None)
+    assert resp["statusCode"] == 404
+
+
+def test_delete_trip_cascades(monkeypatch):
+    schedules = _FakeTable(query_items=[
+        {"trip_id": "t1", "start_time": "s1"},
+        {"trip_id": "t1", "start_time": "s2"},
+    ])
+    chats = _FakeTable(query_items=[{"trip_id": "t1", "created_at": "c1"}])
+    trips = _FakeTable(query_items=[{"trip_id": "t1", "name": "강원"}])
+    _install_trips(monkeypatch, trips, schedules, chats)
+    resp = app.lambda_handler(_post({
+        "action": "delete_trip", "trip_id": "t1"}), None)
+    assert resp["statusCode"] == 200
+    assert len(schedules.deleted_keys) == 2          # 일정 2개
+    assert len(chats.deleted_keys) == 1              # 대화 1개
+    assert trips.deleted_keys == [{"trip_id": "t1"}]  # 여행 자체

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../core/api/dio_client.dart';
 import '../core/config/dev_config.dart';
 import '../core/location/geolocator.dart';
+import 'maps_link.dart';
 
 /// 위치 기반 AI 장소 추천 '대화 위젯' — 추천 탭과 여행 탭이 함께 쓰는 공용 부품.
 ///
@@ -544,6 +545,20 @@ class _PlaceCardState extends State<_PlaceCard> {
     });
   }
 
+  /// 장소명을 탭하면 구글 지도에서 그 장소를 연다(place_id 로 정확히). 실패 시 스낵바.
+  Future<void> _openMaps() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await openPlaceInMaps(
+      name: widget.place.name,
+      placeId: widget.place.placeId,
+      address: widget.place.address,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      messenger.showSnackBar(const SnackBar(content: Text('지도를 열 수 없어요')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final place = widget.place;
@@ -565,12 +580,33 @@ class _PlaceCardState extends State<_PlaceCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Text(
-                    place.name,
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
+                  // 장소명 탭 → 구글 지도에서 그 장소 열기. 탭 가능함을 알리려고
+                  // 강조색 + 작은 지도 아이콘을 붙인다(일정 화면과 동일한 패턴).
+                  child: InkWell(
+                    onTap: _openMaps,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              place.name,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: scheme.primary),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.map_outlined,
+                              size: 16, color: scheme.primary),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
+                const SizedBox(width: 8),
                 _AddButton(
                   added: _added,
                   adding: _adding,

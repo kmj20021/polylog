@@ -46,5 +46,11 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- url_launcher 가 Android 11+ 에서 외부 브라우저/지도앱으로 https 링크를
+             열 수 있도록(장소 클릭 → 구글 지도). 없으면 launchUrl 이 실패한다. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

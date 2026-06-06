@@ -6,10 +6,15 @@
      함께 기억하고, 근처 장소를 검색해 '방문 순서(동선)'를 제안하며, 말로 일정을 고친다.
 
 라우팅(HTTP 메서드 + action):
-  POST /schedule {action:"chat", ...}  → 대화형 플래너 (_handle_chat)
-  POST /schedule {place_name, ...}     → 한 장소 담기            (_handle_post)
-  GET  /schedule?trip_id=...           → 타임라인 조회           (_handle_get)
-  DELETE /schedule {trip_id,start_time}→ 한 항목 삭제            (_handle_delete)
+  POST /schedule {action:"chat", ...}     → 대화형 플래너          (_handle_chat)
+  POST /schedule {action:"reorder", ...}  → 일정 순서 재정렬       (_handle_reorder)
+  POST /schedule {action:"create_trip"}   → 새 여행 만들기         (_handle_create_trip)
+  POST /schedule {action:"list_trips"}    → 여행 목록             (_handle_list_trips)
+  POST /schedule {action:"update_trip"}   → 여행 이름·기간 수정    (_handle_update_trip)
+  POST /schedule {action:"delete_trip"}   → 여행 삭제(일정·대화 포함)(_handle_delete_trip)
+  POST /schedule {place_name, ...}        → 한 장소 담기           (_handle_post)
+  GET  /schedule?trip_id=...              → 타임라인 조회          (_handle_get)
+  DELETE /schedule {trip_id,start_time}   → 한 항목 삭제           (_handle_delete)
 
 ── 대화형 플래너(_handle_chat) 흐름 ──────────────────────────────────────────
   입력 : {action:"chat", trip_id, message, lat, lng, language}
@@ -57,6 +62,7 @@ _log.setLevel(logging.INFO)
 _dynamodb = boto3.resource("dynamodb", region_name="ap-northeast-2")
 _TABLE_NAME = os.environ.get("SCHEDULES_TABLE", "polylog-schedules")
 _CHATS_TABLE = os.environ.get("CHATS_TABLE", "polylog-chats")
+_TRIPS_TABLE = os.environ.get("TRIPS_TABLE", "polylog-trips")
 
 # Bedrock 은 us-east-1(모델 액세스 승인 리전)에서 호출.
 _bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
@@ -111,6 +117,15 @@ def lambda_handler(event, context):
             return _handle_chat(body)
         if action == "reorder":
             return _handle_reorder(body)
+        # 여행(trip) 관리 — 새 API 경로 대신 같은 POST 라우트에 action 분기(배포 비용 절감).
+        if action == "create_trip":
+            return _handle_create_trip(body)
+        if action == "list_trips":
+            return _handle_list_trips(body)
+        if action == "update_trip":
+            return _handle_update_trip(body)
+        if action == "delete_trip":
+            return _handle_delete_trip(body)
         return _handle_post(body)
     return _resp(405, {"error": f"지원하지 않는 메서드: {method}"})
 
@@ -225,6 +240,82 @@ def _handle_delete(event):
 
     _table().delete_item(Key={"trip_id": trip_id, "start_time": start_time})
     return _resp(200, {"type": "deleted", "trip_id": trip_id, "start_time": start_time})
+
+
+# ════════════════════════════ 여행(trip) 관리 ════════════════════════════
+# 사용자가 여러 여행을 따로 만들어 관리한다(예: "강원도 여행", "부산 여행"). 부모 테이블
+# polylog-trips 에 저장하고, 각 여행의 일정/대화는 trip_id 로 묶인다. 로그인 전 PoC 라
+# '한 사용자' 가정으로 scan 한다(멀티유저 땐 user_id GSI 가 필요 — 추후).
+def _handle_create_trip(body):
+    """새 여행을 만든다 — trip_id 를 발급하고 이름·기간을 저장."""
+    name = _clean(body.get("name"))
+    if not name:
+        return _resp(400, {"error": "name(여행 이름)은 필수입니다."})
+    now = _now_iso()
+    item = {
+        "trip_id": str(uuid.uuid4()),
+        "name": name,
+        "start_date": _clean(body.get("start_date")),  # 표시용 'YYYY-MM-DD'(선택)
+        "end_date": _clean(body.get("end_date")),
+        "created_at": now,
+        "updated_at": now,
+    }
+    item = {k: v for k, v in item.items() if v not in ("", None)}
+    _trips_table().put_item(Item=item)
+    return _resp(200, {"type": "trip_created", "trip": _json_safe(item)})
+
+
+def _handle_list_trips(body):
+    """여행 전체를 시작일(없으면 생성일) 순으로 돌려준다."""
+    res = _trips_table().scan()
+    items = list(res.get("Items", []))
+    while "LastEvaluatedKey" in res:        # 대량 대비(PoC 규모엔 거의 불필요)
+        res = _trips_table().scan(ExclusiveStartKey=res["LastEvaluatedKey"])
+        items.extend(res.get("Items", []))
+    items.sort(key=lambda t: t.get("start_date") or t.get("created_at") or "")
+    return _resp(200, {
+        "type": "trips",
+        "count": len(items),
+        "items": [_json_safe(it) for it in items],
+    })
+
+
+def _handle_update_trip(body):
+    """여행 이름·기간을 수정한다(존재하는 필드만 갱신)."""
+    trip_id = _clean(body.get("trip_id"))
+    if not trip_id:
+        return _resp(400, {"error": "trip_id 는 필수입니다."})
+    existing = _trips_table().get_item(Key={"trip_id": trip_id}).get("Item")
+    if not existing:
+        return _resp(404, {"error": "해당 여행을 찾을 수 없습니다."})
+    name = _clean(body.get("name"))
+    if name:
+        existing["name"] = name
+    if "start_date" in body:
+        existing["start_date"] = _clean(body.get("start_date"))
+    if "end_date" in body:
+        existing["end_date"] = _clean(body.get("end_date"))
+    existing["updated_at"] = _now_iso()
+    existing = {k: v for k, v in existing.items() if v not in ("", None)}
+    _trips_table().put_item(Item=existing)
+    return _resp(200, {"type": "trip_updated", "trip": _json_safe(existing)})
+
+
+def _handle_delete_trip(body):
+    """여행을 지운다 — 딸린 일정·대화 기억까지 함께 정리(고아 데이터 방지)."""
+    trip_id = _clean(body.get("trip_id"))
+    if not trip_id:
+        return _resp(400, {"error": "trip_id 는 필수입니다."})
+    for it in _load_schedule(trip_id):       # 1) 일정 전부
+        _table().delete_item(
+            Key={"trip_id": trip_id, "start_time": it["start_time"]})
+    chats = _chats_table().query(            # 2) 대화 기억 전부
+        KeyConditionExpression=Key("trip_id").eq(trip_id))
+    for c in chats.get("Items", []):
+        _chats_table().delete_item(
+            Key={"trip_id": trip_id, "created_at": c["created_at"]})
+    _trips_table().delete_item(Key={"trip_id": trip_id})  # 3) 여행 자체
+    return _resp(200, {"type": "trip_deleted", "trip_id": trip_id})
 
 
 # ════════════════════════════ 대화형 플래너(action="chat") ════════════════════════════
@@ -674,6 +765,10 @@ def _table():
 
 def _chats_table():
     return _dynamodb.Table(_CHATS_TABLE)
+
+
+def _trips_table():
+    return _dynamodb.Table(_TRIPS_TABLE)
 
 
 def _parse_body(event):
