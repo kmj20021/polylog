@@ -2,12 +2,13 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/dio_client.dart';
-import '../home/home_shell.dart';
+import 'trip.dart';
 
-/// '내 여행' 목록 — 앱의 홈 화면.
+/// '내 여행' 탭 — 여행을 만들고 고르고(현재 여행으로 선택) 관리한다.
 ///
-/// 사용자는 여러 여행(예: "강원도 여행", "남친과 부산 여행")을 만들어 따로 관리한다.
-/// 여행 하나를 탭하면 그 여행의 근처/계획 화면(HomeShell)으로 들어간다.
+/// 메인 셸(MainShell)의 한 탭으로 들어간다. 여행 하나를 탭하면 [onSelect] 로 부모에게
+/// 알려 '현재 여행'을 바꾸고, 부모가 근처/계획/메뉴/영수증 탭으로 데려간다(이 화면에서
+/// 직접 이동하지 않음 — 현재 여행 상태는 부모가 들고 있다).
 ///
 /// 데이터 출처(모두 fn-schedule 의 POST action 분기 — 새 API 경로 없이 처리):
 ///   - 목록:   POST /schedule {action:"list_trips"}
@@ -15,7 +16,21 @@ import '../home/home_shell.dart';
 ///   - 수정:   POST /schedule {action:"update_trip", trip_id, name, start_date, end_date}
 ///   - 삭제:   POST /schedule {action:"delete_trip", trip_id}  (딸린 일정·대화도 함께 삭제)
 class TripsScreen extends StatefulWidget {
-  const TripsScreen({super.key});
+  /// 지금 선택돼 있는 여행 id(이 화면에서 ✓ 로 표시). 없으면 null.
+  final String? currentTripId;
+
+  /// 여행을 탭해 '현재 여행'으로 고를 때 호출(부모가 상태를 바꾼다).
+  final ValueChanged<Trip> onSelect;
+
+  /// 목록이 바뀌었을 때(생성/수정/삭제) 부모에게 알림 — 부모도 사본을 새로고침한다.
+  final VoidCallback? onChanged;
+
+  const TripsScreen({
+    super.key,
+    required this.currentTripId,
+    required this.onSelect,
+    this.onChanged,
+  });
 
   @override
   State<TripsScreen> createState() => _TripsScreenState();
@@ -24,7 +39,7 @@ class TripsScreen extends StatefulWidget {
 class _TripsScreenState extends State<TripsScreen> {
   bool _loading = true;
   String? _error;
-  final List<_Trip> _trips = [];
+  final List<Trip> _trips = [];
 
   @override
   void initState() {
@@ -50,7 +65,7 @@ class _TripsScreenState extends State<TripsScreen> {
           ..clear()
           ..addAll(raw
               .whereType<Map>()
-              .map((e) => _Trip.fromJson(e.cast<String, dynamic>())));
+              .map((e) => Trip.fromJson(e.cast<String, dynamic>())));
         _loading = false;
       });
     } on DioException catch (e) {
@@ -68,15 +83,6 @@ class _TripsScreenState extends State<TripsScreen> {
     }
   }
 
-  /// 여행 하나를 탭 → 그 여행의 근처/계획 화면으로 진입. 돌아오면 목록을 새로고침
-  /// (그 안에서 일정을 바꿨을 수 있으니, 또 이름/날짜를 수정했을 수도 있으니).
-  Future<void> _open(_Trip trip) async {
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => HomeShell(tripId: trip.tripId, tripName: trip.name),
-    ));
-    if (mounted) _load();
-  }
-
   /// 새 여행 만들기 — 입력 시트를 띄워 이름·기간을 받아 서버에 저장.
   Future<void> _create() async {
     final data = await _showTripForm();
@@ -90,6 +96,7 @@ class _TripsScreenState extends State<TripsScreen> {
         'end_date': data.endDate,
       });
       await _load();
+      widget.onChanged?.call();
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('여행 생성 실패: $e')));
@@ -97,7 +104,7 @@ class _TripsScreenState extends State<TripsScreen> {
   }
 
   /// 기존 여행 수정 — 현재 값으로 채운 시트를 띄워 바뀐 값을 저장.
-  Future<void> _edit(_Trip trip) async {
+  Future<void> _edit(Trip trip) async {
     final data = await _showTripForm(initial: trip);
     if (data == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -110,6 +117,7 @@ class _TripsScreenState extends State<TripsScreen> {
         'end_date': data.endDate,
       });
       await _load();
+      widget.onChanged?.call();
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('여행 수정 실패: $e')));
@@ -117,7 +125,7 @@ class _TripsScreenState extends State<TripsScreen> {
   }
 
   /// 여행 삭제 — 확인 후 서버에서 지운다(그 여행의 일정·대화까지 함께 사라짐).
-  Future<void> _delete(_Trip trip) async {
+  Future<void> _delete(Trip trip) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -143,6 +151,7 @@ class _TripsScreenState extends State<TripsScreen> {
       });
       if (!mounted) return;
       setState(() => _trips.removeWhere((t) => t.tripId == trip.tripId));
+      widget.onChanged?.call();
       messenger.showSnackBar(SnackBar(content: Text('"${trip.name}" 삭제됨')));
     } catch (e) {
       if (!mounted) return;
@@ -152,7 +161,7 @@ class _TripsScreenState extends State<TripsScreen> {
   }
 
   /// 생성/수정 공용 입력 시트. 확인을 누르면 입력값을, 취소면 null 을 돌려준다.
-  Future<_TripForm?> _showTripForm({_Trip? initial}) {
+  Future<_TripForm?> _showTripForm({Trip? initial}) {
     return showModalBottomSheet<_TripForm>(
       context: context,
       isScrollControlled: true, // 키보드가 올라와도 내용이 가려지지 않게
@@ -207,7 +216,9 @@ class _TripsScreenState extends State<TripsScreen> {
       itemCount: _trips.length,
       itemBuilder: (context, i) => _TripCard(
         trip: _trips[i],
-        onTap: () => _open(_trips[i]),
+        isCurrent: _trips[i].tripId == widget.currentTripId,
+        isOngoing: _trips[i].isOngoing(),
+        onTap: () => widget.onSelect(_trips[i]),
         onEdit: () => _edit(_trips[i]),
         onDelete: () => _delete(_trips[i]),
       ),
@@ -215,51 +226,20 @@ class _TripsScreenState extends State<TripsScreen> {
   }
 }
 
-/// 여행 1개 — polylog-trips 한 행.
-class _Trip {
-  final String tripId;
-  final String name;
-  final String startDate; // 'YYYY-MM-DD'(없을 수 있음)
-  final String endDate;
-
-  const _Trip({
-    required this.tripId,
-    required this.name,
-    required this.startDate,
-    required this.endDate,
-  });
-
-  factory _Trip.fromJson(Map<String, dynamic> j) => _Trip(
-        tripId: (j['trip_id'] ?? '').toString(),
-        name: (j['name'] ?? '').toString(),
-        startDate: (j['start_date'] ?? '').toString(),
-        endDate: (j['end_date'] ?? '').toString(),
-      );
-
-  /// 목록에 보여줄 기간 문구: "2026.02.07 - 2026.02.09" / 한쪽만 있으면 그것만 /
-  /// 둘 다 없으면 "날짜 미정".
-  String get dateRangeLabel {
-    final s = _dot(startDate);
-    final e = _dot(endDate);
-    if (s.isEmpty && e.isEmpty) return '날짜 미정';
-    if (e.isEmpty) return s;
-    if (s.isEmpty) return e;
-    return '$s - $e';
-  }
-
-  static String _dot(String isoDate) =>
-      isoDate.isEmpty ? '' : isoDate.replaceAll('-', '.');
-}
-
-/// 여행 목록의 카드 — 탭하면 진입, 오른쪽 ⋮ 메뉴로 수정/삭제.
+/// 여행 목록의 카드 — 탭하면 현재 여행으로 선택, 오른쪽 ⋮ 메뉴로 수정/삭제.
+/// '여행 중'(오늘이 기간 안)·'선택됨'을 배지/테두리로 알린다.
 class _TripCard extends StatelessWidget {
-  final _Trip trip;
+  final Trip trip;
+  final bool isCurrent;
+  final bool isOngoing;
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _TripCard({
     required this.trip,
+    required this.isCurrent,
+    required this.isOngoing,
     required this.onTap,
     required this.onEdit,
     required this.onDelete,
@@ -272,9 +252,13 @@ class _TripCard extends StatelessWidget {
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 12),
+      // 선택된 여행은 강조 테두리로 한눈에 보이게.
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: scheme.outlineVariant),
+        side: BorderSide(
+          color: isCurrent ? scheme.primary : scheme.outlineVariant,
+          width: isCurrent ? 2 : 1,
+        ),
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
@@ -283,9 +267,24 @@ class _TripCard extends StatelessWidget {
           backgroundColor: scheme.primaryContainer,
           child: Icon(Icons.luggage, color: scheme.onPrimaryContainer),
         ),
-        title: Text(trip.name,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold)),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(trip.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+            ),
+            if (isOngoing) ...[
+              const SizedBox(width: 8),
+              _Badge(text: '여행 중', color: scheme.primary),
+            ],
+            if (isCurrent) ...[
+              const SizedBox(width: 6),
+              Icon(Icons.check_circle, size: 18, color: scheme.primary),
+            ],
+          ],
+        ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Row(
@@ -310,6 +309,27 @@ class _TripCard extends StatelessWidget {
   }
 }
 
+/// 작은 알약형 배지(예: "여행 중").
+class _Badge extends StatelessWidget {
+  final String text;
+  final Color color;
+  const _Badge({required this.text, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(text,
+          style: TextStyle(
+              color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+    );
+  }
+}
+
 /// 생성/수정 입력값 묶음(시트가 부모에게 돌려주는 결과).
 class _TripForm {
   final String name;
@@ -321,7 +341,7 @@ class _TripForm {
 
 /// 여행 이름 + 시작/종료일을 입력받는 바텀시트. initial 이 있으면 '수정' 모드.
 class _TripFormSheet extends StatefulWidget {
-  final _Trip? initial;
+  final Trip? initial;
   const _TripFormSheet({this.initial});
 
   @override

@@ -8,7 +8,7 @@ import '../../core/location/geolocator.dart';
 /// 여행 탭의 '대화형 일정 플래너' — 추천과 달리 AI가 대화를 기억하고 동선을 제안한다.
 ///
 /// 추천 탭의 [PlaceChat] 과 다른 점(차별화의 핵심):
-///   - `POST /schedule {action:"chat"}` 를 호출 → 서버가 이전 대화 + 현재 일정을 함께 본다.
+///   - `POST /planner` 를 호출(전용 함수 polylog-fn-planner) → 서버가 이전 대화 + 현재 일정을 함께 본다.
 ///   - 응답은 단순 장소 목록이 아니라 {reply(말), proposed_plan(방문 순서 동선), timeline, edited}.
 ///   - "빼줘/순서 바꿔" 같은 편집은 서버가 즉시 반영 → [onScheduleChanged] 로 호스트가
 ///     위쪽 타임라인을 새로고침한다. 새 장소(proposed_plan)는 '이대로 담기'로 확정.
@@ -101,7 +101,9 @@ class _SchedulePlannerState extends State<SchedulePlanner> {
     _scrollToEnd();
     try {
       final res = await DioClient().post<Map<String, dynamic>>(
-        '/schedule',
+        // 대화형 플래너는 전용 함수(polylog-fn-planner)로 분리됨 → /planner 호출.
+        // (담기 저장은 아래 _addOne 에서 여전히 /schedule = fn-schedule 담당.)
+        '/planner',
         data: {
           'action': 'chat',
           'trip_id': widget.tripId,

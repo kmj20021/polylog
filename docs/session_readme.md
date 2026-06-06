@@ -3,7 +3,7 @@
 > **다음 진도를 나가기 전에 한 번씩 읽으세요.** 다른 기능을 만들다 참조할 "이미 만들어 둔 것들"(DB·람다·S3·API·역할)을 한곳에 모은 빠른 참조표입니다.
 > 새 자원을 만들면 **여기에 한 줄 추가**해서 다음 세션이 헤매지 않게 합니다. (상세 결정 근거는 `ADR.md`, 단계별 핸드오프는 `session-handoff.md`)
 
-마지막 갱신: 2026-06-06 (여러 '여행(trip)' 생성·관리 추가: /schedule 에 create/list/update/delete_trip 액션 → `polylog-trips` 본격 사용, 앱 홈=내 여행 목록 / 일정·추천 장소명 탭→구글지도 url_launcher)
+마지막 갱신: 2026-06-06 (⭐ 대화형 AI 플래너를 fn-schedule 에서 **`polylog-fn-planner`(POST /planner)** 로 분리 — 무거운 Bedrock+Places 작업을 가벼운 CRUD 와 격리. 앱 '계획' 탭 chat 호출이 /schedule→/planner 로 변경. fn-schedule 의 _handle_chat 은 폴백으로 당분간 유지(검증 후 제거 예정). // 이전: 여러 '여행(trip)' 생성·관리(/schedule create/list/update/delete_trip → `polylog-trips`), 앱 메인=MainShell(하단탭 근처·계획·메뉴·영수증·내여행), 오늘이 기간 안인 여행 자동선택(Trip.isOngoing)→기능탭이 그 trip_id 로 동작, 메뉴·영수증은 tripId 배선만(본기능 WIP), 일정·추천 장소명 탭→구글지도 url_launcher)
 
 ---
 
@@ -35,12 +35,13 @@
 | `polylog-fn-health` | GET /health | ✅ 배포 | 배포 파이프라인 헬스체크 |
 | `polylog-fn-recommend` | POST /recommend | ✅ 배포 | GPS+Places(New)+Bedrock, Timeout 30s, env `GOOGLE_PLACES_API_KEY` |
 | `polylog-fn-schedule` | POST·GET·DELETE /schedule | ✅ 배포(재배포 필요) | ①CRUD: 추가/조회/삭제(`polylog-schedules`) ②**대화형 플래너(지역인식·멀티카테고리)**: `POST {action:"chat"}` → 이전 대화(`polylog-chats`)+현재 일정 기억. 두뇌(Haiku)가 `{region, searches[], edits}` 판단 → region이 있으면 GPS 편향 없이 그 지역을, 없으면 현재 위치 주변을 검색. searches(관광·식사·카페 등 종류별, ≤4개)를 멀티 텍스트검색해 후보 풀(중복제거)→ 큐레이터(Sonnet)가 종류 섞어 동선 제안 ③**순서 재정렬**: `POST {action:"reorder", trip_id, order:[start_time...]}` → 드래그로 바꾼 새 순서대로 `_rewrite_order`(delete+put 재기록), `{type:"reordered", items}` 반환. ④**여행(trip) 관리**: `POST {action:"create_trip"|"list_trips"|"update_trip"|"delete_trip"}` → `polylog-trips` CRUD(이름·기간). delete_trip 은 딸린 일정·대화까지 cascade 삭제. list_trips 는 scan(PoC 단일유저). **Timeout 30s, env `GOOGLE_PLACES_API_KEY` 필요**. chat·reorder·trip 모두 기존 POST 라우트에 action 분기(새 라우트 불필요) |
+| `polylog-fn-planner` | POST /planner | ✅ 사용자 직접 배포(함수+라우트) · 코드 반영 필요 | **대화형 AI 플래너(fn-schedule 에서 분리)**. `POST {trip_id, message, lat, lng}` → 이전 대화(`polylog-chats`)+현재 일정(`polylog-schedules`) 기억. 두뇌(Haiku)가 `{region, searches[], edits}` 판단 → 멀티 텍스트검색(Places) 후보풀 → 큐레이터(Sonnet)가 종류 섞어 동선 제안. 편집(remove/reorder)은 즉시 반영. 진입점이 POST→chat 단순화(action 무시). **Timeout 30s, env `GOOGLE_PLACES_API_KEY` 필요**. `polylog-schedules`(읽기+편집)·`polylog-chats`(읽기+쓰기)만 — trips 안 건드림. code: `backend/src/handlers/planner/app.py` |
 | `polylog-fn-authorizer` | (Lambda Authorizer) | ⬜ 코드만·미배포 | Phase 4 인증(JWT). 현재 API auth=NONE |
 
 ## 4. API Gateway
 - 이름 `polylog-api`, REST, 스테이지 **dev**
 - **Base URL**: `https://mvlllsq6xj.execute-api.ap-northeast-2.amazonaws.com/dev`
-- 경로: `/health`(GET) · `/recommend`(POST) · `/schedule`(POST·GET·DELETE)
+- 경로: `/health`(GET) · `/recommend`(POST) · `/schedule`(POST·GET·DELETE) · `/planner`(POST)
 
 ## 5. S3
 | 버킷 | 용도 |

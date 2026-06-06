@@ -128,6 +128,10 @@ deploy_lambda "polylog-fn-schedule" \
   "$(get_s3_key FnSchedule)" \
   "app.lambda_handler" 10 128
 
+deploy_lambda "polylog-fn-planner" \
+  "$(get_s3_key FnPlanner)" \
+  "app.lambda_handler" 30 128
+
 # ────────────────────────────────────────────
 # 5-1. fn-recommend 환경변수 주입 (Google Places 키)
 #   update-function-code 는 코드만 갱신하고 환경변수는 건드리지 않는다.
@@ -172,6 +176,30 @@ fi
 aws lambda wait function-updated \
   --function-name "polylog-fn-schedule" --region "$REGION"
 log "  ✅ fn-schedule 설정 완료"
+
+# ────────────────────────────────────────────
+# 5-3. fn-planner 설정 갱신 (대화형 플래너 — fn-schedule 에서 분리)
+#   - Timeout 30s: Bedrock 최대 2콜 + Places 1콜 → 10초로는 부족.
+#   - GOOGLE_PLACES_API_KEY: 동선 후보 검색용(없으면 검색 없이 대화만 동작).
+#   update-function-code 는 코드만 갱신하므로 timeout/env 는 여기서 따로 맞춘다.
+# ────────────────────────────────────────────
+log "fn-planner 설정 갱신 (Timeout 30s + Places 키)"
+if [ -n "${GOOGLE_PLACES_API_KEY:-}" ]; then
+    aws lambda update-function-configuration \
+      --function-name "polylog-fn-planner" \
+      --timeout 30 \
+      --environment "Variables={GOOGLE_PLACES_API_KEY=$GOOGLE_PLACES_API_KEY}" \
+      --region "$REGION" --output text --query 'LastModified' > /dev/null
+else
+    warn "GOOGLE_PLACES_API_KEY 미설정 → 키 없이 Timeout 만 상향(대화는 되나 장소 검색 불가)"
+    aws lambda update-function-configuration \
+      --function-name "polylog-fn-planner" \
+      --timeout 30 \
+      --region "$REGION" --output text --query 'LastModified' > /dev/null
+fi
+aws lambda wait function-updated \
+  --function-name "polylog-fn-planner" --region "$REGION"
+log "  ✅ fn-planner 설정 완료"
 
 # 추후 추가 예시:
 # deploy_lambda "polylog-fn-authorizer" "$(get_s3_key FnAuthorizer)" "app.lambda_handler" 10 128

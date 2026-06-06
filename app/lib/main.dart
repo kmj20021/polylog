@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'features/trips/trips_screen.dart';
+import 'features/home/main_shell.dart';
 
 void main() => runApp(const PolylogApp());
 
@@ -16,8 +16,8 @@ class PolylogApp extends StatelessWidget {
         colorSchemeSeed: const Color(0xFF3B6FB6),
         useMaterial3: true,
       ),
-      // 홈 = '내 여행' 목록. 여행을 고르면 그 여행의 근처/계획(HomeShell)으로 들어간다.
-      home: const TripsScreen(),
+      // 홈 = 메인 셸. 현재 여행을 자동 선택하고 근처/계획/메뉴/영수증을 바로 쓴다.
+      home: const MainShell(),
     );
   }
 }
