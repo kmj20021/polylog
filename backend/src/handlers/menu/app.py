@@ -16,19 +16,20 @@ POST /menu
 - 프론트가 아직 없어 **base64 인라인 이미지**를 한 POST 로 받는다 → presigned 업로드 왕복 없이
   curl 한 방으로 검증된다. 같은 Textract '동기' API(≤5MB)를 영수증(서브2)도 그대로 재사용한다.
 - 사진은 받는 즉시 polylog-media 에 SSE 로 보관(기록·재처리용). 저장 실패해도 분석 결과는 반환.
-- OCR(Textract DetectDocumentText)·번역(Translate)·추천(Bedrock Haiku)을 각각 작은 헬퍼로 분리 →
-  단위테스트에서 monkeypatch 로 갈아끼우기 쉽고(=AWS 없이 테스트), 영수증이 부품을 재사용한다.
-- 번역은 줄들을 한 번에 묶어 1콜로 처리(콜 수·시간 절감), 줄 수가 어긋나면 줄별로 폴백.
-- Bedrock 에는 JSON 만 받도록 요청하고 방어적으로 파싱 → 실패해도 추천만 비고 목록은 그대로.
+- OCR(Textract DetectDocumentText)·분석(Bedrock Haiku)을 각각 작은 헬퍼로 분리 → 단위테스트에서
+  monkeypatch 로 갈아끼우기 쉽고(=AWS 없이 테스트), 영수증이 부품을 재사용한다.
+- ⭐ 번역은 Amazon Translate 가 아니라 **Bedrock 이 담당**한다(번역+설명+추천을 한 콜로). 이유는
+  Translate 의 언어 자동감지(auto)가 Amazon Comprehend 권한을 요구하는데 SafeRole 에 없어
+  전부 실패했기 때문 — 자세한 근거는 _analyze_menu 주석 참조.
+- Bedrock 에는 JSON 만 받도록 요청하고 방어적으로 파싱 → 실패해도 번역·추천만 비고 원문 목록은 그대로.
 
-리전: Textract·Translate·S3·DynamoDB = ap-northeast-2(서울), Bedrock(Haiku) = us-east-1.
-권한은 공용 역할 SafeRole-polylog(Textract·Translate·S3·Bedrock·DynamoDB) — 환경변수 불필요.
+리전: Textract·S3·DynamoDB = ap-northeast-2(서울), Bedrock(Haiku) = us-east-1.
+권한은 공용 역할 SafeRole-polylog(Textract·S3·Bedrock·DynamoDB) — 환경변수 불필요.
 boto3 는 Lambda 런타임 내장 → 배포 패키지 의존성 0.
 """
 import base64
 import binascii
 import json
-import re
 import uuid
 from datetime import datetime, timezone
 
@@ -38,9 +39,8 @@ import boto3
 _bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
 _MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
 
-# OCR·번역·저장은 모두 서울 리전.
+# OCR·저장은 서울 리전. (번역은 Amazon Translate 대신 Bedrock 이 담당 — 아래 _analyze_menu 주석 참조)
 _textract = boto3.client("textract", region_name="ap-northeast-2")
-_translate = boto3.client("translate", region_name="ap-northeast-2")
 _s3 = boto3.client("s3", region_name="ap-northeast-2")
 _menus_table = boto3.resource("dynamodb", region_name="ap-northeast-2").Table("polylog-menus")
 
@@ -54,9 +54,6 @@ _CORS = {
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
 }
-
-# 가격으로 보이는 줄(숫자·통화기호 위주)을 메뉴명에서 가려내기 위한 패턴.
-_PRICE_RE = re.compile(r"[\d][\d,.\s]*")
 
 
 def lambda_handler(event, context):
@@ -103,26 +100,21 @@ def lambda_handler(event, context):
             "message": "사진에서 메뉴 텍스트를 찾지 못했어요. 더 또렷하게 다시 촬영해 주세요.",
         })
 
-    # 3) 번역(목표 언어로). 실패하면 원문을 그대로 둔다.
-    try:
-        translated = _translate_lines(lines, language)
-    except Exception:
-        translated = list(lines)
-
-    # 4) 항목 구성 — 줄마다 {item_id, original_name, translated_name, price}.
+    # 3) 항목 구성 — 우선 원문으로 채운다(번역 실패 시 그대로 보이도록).
     items = []
-    for idx, (orig, kor) in enumerate(zip(lines, translated)):
+    for idx, orig in enumerate(lines):
         items.append({
             "item_id": f"m{idx}",
             "original_name": orig,
-            "translated_name": kor,
+            "translated_name": orig,   # 4)에서 번역으로 덮어씀
             "price": _parse_price(orig),
             "description": "",
         })
 
-    # 5) Bedrock — 식이 제한 반영한 추천 + 항목 설명(실패해도 목록은 반환).
-    recommended, descriptions = _recommend_menu(items, dietary, language)
+    # 4) Bedrock 한 콜로 번역 + 설명 + 추천을 동시에(실패해도 원문 목록은 반환).
+    translations, descriptions, recommended = _analyze_menu(items, dietary, language)
     for it in items:
+        it["translated_name"] = translations.get(it["item_id"], it["original_name"])
         it["description"] = descriptions.get(it["item_id"], "")
 
     menu_id = str(uuid.uuid4())
@@ -201,71 +193,58 @@ def _ocr_lines(image_bytes):
     ]
 
 
-def _translate_lines(lines, target):
-    """줄들을 한 번에 묶어 번역(1콜). 줄 수가 어긋나면 줄별로 폴백."""
-    target = target or "ko"
-    joined = "\n".join(lines)
-    out = _translate.translate_text(
-        Text=joined,
-        SourceLanguageCode="auto",
-        TargetLanguageCode=target,
-    )
-    parts = (out.get("TranslatedText") or "").split("\n")
-    if len(parts) == len(lines):
-        return parts
-    # 줄 경계가 어긋나면 안전하게 줄별 번역.
-    result = []
-    for ln in lines:
-        try:
-            r = _translate.translate_text(
-                Text=ln, SourceLanguageCode="auto", TargetLanguageCode=target,
-            )
-            result.append(r.get("TranslatedText") or ln)
-        except Exception:
-            result.append(ln)
-    return result
+def _analyze_menu(items, dietary, language):
+    """Bedrock(Claude Haiku) 한 콜로 번역 + 한 줄 설명 + 추천을 동시에 생성.
 
+    왜 Amazon Translate 가 아니라 Bedrock 인가:
+      Translate 의 SourceLanguageCode='auto'(언어 자동 감지)는 내부적으로 Amazon Comprehend
+      (DetectDominantLanguage)를 호출하는데, 공용 역할 SafeRole-polylog 에는 Comprehend 권한이
+      없어 호출이 AccessDenied 로 전부 실패 → 원문 그대로 폴백되는 버그가 있었다(B-3).
+      메뉴는 다국어이고 source 언어를 미리 알 수 없어 explicit 지정도 어렵다. 그래서 이미
+      쓰는 Bedrock 에 번역까지 맡긴다 → 새 IAM 권한 불필요 + 음식 맥락을 아는 더 나은 번역.
 
-def _recommend_menu(items, dietary, language):
-    """Bedrock 으로 추천 item_id 목록 + 항목별 한 줄 설명 생성.
-
-    반환: (recommended:list[str item_id], descriptions:dict[item_id->str])
-    실패하면 ([], {}) — 호출부는 목록만 그대로 반환.
+    반환: (translations dict[id->str], descriptions dict[id->str], recommended list[str])
+    실패하면 ({}, {}, []) — 호출부는 원문 목록을 그대로 반환.
     """
     if not items:
-        return [], {}
+        return {}, {}, []
 
+    lang_label = {"ko": "한국어", "en": "영어", "ja": "일본어"}.get(language, language or "한국어")
     menu_lines = "\n".join(
-        f'{it["item_id"]}: {it["translated_name"]} (원문: {it["original_name"]})'
-        for it in items
+        f'{it["item_id"]}: {it["original_name"]}' for it in items
     )
     diet = ", ".join(dietary) if dietary else "없음"
     prompt = (
         "너는 해외 식당에서 한국인 여행자를 돕는 메뉴 도우미다.\n"
-        "아래 메뉴 목록(item_id: 번역명)을 보고, 알레르기·식이 제한을 피해 추천 메뉴를 고르고\n"
-        "각 메뉴에 한국어 한 줄 설명(무슨 음식인지)을 붙여라.\n"
+        f"아래는 메뉴판 OCR 원문이다(item_id: 원문). 각 항목을 {lang_label}로 번역하고, "
+        "무슨 음식인지 한 줄 설명을 붙여라. 가격·숫자·기호만 있는 줄은 원문을 그대로 둔다.\n"
+        "그리고 알레르기·식이 제한을 피해 추천 메뉴를 최대 4개 골라라.\n"
         f"- 식이 제한(반드시 제외): {diet}\n"
         f"- 메뉴:\n{menu_lines}\n\n"
         "JSON 만 출력(설명·코드펜스 금지):\n"
-        '{"recommended":["추천 item_id 들 (최대 4개)"],'
-        '"descriptions":{"item_id":"한 줄 설명", ...}}'
+        '{"items":{"m0":{"translated":"번역명","description":"한 줄 설명"}, ...},'
+        '"recommended":["추천 item_id 최대 4개"]}'
     )
     try:
-        text = _invoke_claude(prompt, max_tokens=768)
+        text = _invoke_claude(prompt, max_tokens=3000)
         data = _parse_json_object(text)
     except Exception:
-        return [], {}
+        return {}, {}, []
 
     valid_ids = {it["item_id"] for it in items}
+    translations, descriptions = {}, {}
+    for k, v in (data.get("items") or {}).items():
+        if str(k) not in valid_ids or not isinstance(v, dict):
+            continue
+        if v.get("translated"):
+            translations[str(k)] = str(v["translated"])
+        if v.get("description"):
+            descriptions[str(k)] = str(v["description"])
     recommended = [
         str(x) for x in (data.get("recommended") or [])
         if str(x) in valid_ids
     ][:4]
-    raw_desc = data.get("descriptions") or {}
-    descriptions = {
-        str(k): str(v) for k, v in raw_desc.items() if str(k) in valid_ids
-    }
-    return recommended, descriptions
+    return translations, descriptions, recommended
 
 
 def _save_menu(trip_id, created_at, menu_id, photo_s3_key, items, recommended):
