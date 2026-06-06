@@ -132,6 +132,12 @@ deploy_lambda "polylog-fn-planner" \
   "$(get_s3_key FnPlanner)" \
   "app.lambda_handler" 30 128
 
+# 메뉴판 번역(서브1) — OCR+번역+Bedrock 체인이라 30s, 이미지 바이트 때문에 256MB.
+# 권한은 SafeRole-polylog(Textract·Translate·S3·Bedrock·DynamoDB) — 환경변수 주입 불필요.
+deploy_lambda "polylog-fn-menu" \
+  "$(get_s3_key FnMenu)" \
+  "app.lambda_handler" 30 256
+
 # ────────────────────────────────────────────
 # 5-1. fn-recommend 환경변수 주입 (Google Places 키)
 #   update-function-code 는 코드만 갱신하고 환경변수는 건드리지 않는다.
