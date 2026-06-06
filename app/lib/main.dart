@@ -56,12 +56,12 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(
             icon: Icon(Icons.auto_awesome_outlined),
             selectedIcon: Icon(Icons.auto_awesome),
-            label: '추천',
+            label: '근처',
           ),
           NavigationDestination(
             icon: Icon(Icons.map_outlined),
             selectedIcon: Icon(Icons.map),
-            label: '여행',
+            label: '계획',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),

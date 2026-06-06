@@ -57,7 +57,7 @@ def _fake_claude(responses):
     """_invoke_claude 를 호출 순서대로 미리 정한 문자열을 돌려주도록 대체."""
     seq = iter(responses)
 
-    def _inner(prompt, max_tokens, model_id=None):
+    def _inner(prompt, max_tokens, model_id=None, temperature=None):
         return next(seq)
 
     return _inner
@@ -103,6 +103,15 @@ def test_safe_json_extracts_object():
     assert app._safe_json('잡설 {"a":1} 더 잡설') == {"a": 1}
     assert app._safe_json("코드펜스 없음") == {}
     assert app._safe_json("") == {}
+
+
+def test_wants_places_detects_request():
+    assert app._wants_places("일정 짜줘") is True
+    assert app._wants_places("근처 맛집 추천해줘") is True
+    assert app._wants_places("다른 곳도 보여줘") is True
+    assert app._wants_places("고마워, 잘 가") is False
+    assert app._wants_places("") is False
+    assert app._wants_places(None) is False
 
 
 def test_schedule_text_numbers_items():
@@ -181,6 +190,60 @@ def test_post_omits_empty_fields(monkeypatch):
     assert "latitude" not in stored
     assert "rating" not in stored
     assert "address" not in stored
+
+
+# ─────────────────────────── 순서 재정렬(action="reorder") ───────────────────────────
+def _reorder(body):
+    return {"httpMethod": "POST", "body": json.dumps({**body, "action": "reorder"})}
+
+
+def test_reorder_rewrites_to_requested_order(monkeypatch):
+    items = [
+        {"trip_id": "demo-trip", "start_time": "t1", "place_name": "A"},
+        {"trip_id": "demo-trip", "start_time": "t2", "place_name": "B"},
+        {"trip_id": "demo-trip", "start_time": "t3", "place_name": "C"},
+    ]
+    table = _FakeTable(query_items=items)
+    _install_table(monkeypatch, table)
+
+    resp = app.lambda_handler(
+        _reorder({"trip_id": "demo-trip", "order": ["t3", "t1", "t2"]}), None)
+
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["type"] == "reordered"
+    assert [it["place_name"] for it in body["items"]] == ["C", "A", "B"]
+    # 순서를 바꾸려면 전부 재기록(delete 후 put)된다.
+    assert len(table.put_items) == 3
+    # 새 start_time 은 오름차순(타임라인 정렬과 일치)
+    sts = [it["start_time"] for it in body["items"]]
+    assert sts == sorted(sts)
+
+
+def test_reorder_preserves_items_missing_from_order(monkeypatch):
+    items = [
+        {"trip_id": "demo-trip", "start_time": "t1", "place_name": "A"},
+        {"trip_id": "demo-trip", "start_time": "t2", "place_name": "B"},
+        {"trip_id": "demo-trip", "start_time": "t3", "place_name": "C"},
+    ]
+    table = _FakeTable(query_items=items)
+    _install_table(monkeypatch, table)
+
+    # order 가 일부(t3,t1)만 담아도 누락된 t2(B)는 뒤에 보존돼야 한다.
+    resp = app.lambda_handler(
+        _reorder({"trip_id": "demo-trip", "order": ["t3", "t1"]}), None)
+
+    body = json.loads(resp["body"])
+    assert [it["place_name"] for it in body["items"]] == ["C", "A", "B"]
+
+
+def test_reorder_missing_order_400(monkeypatch):
+    table = _FakeTable(query_items=[])
+    _install_table(monkeypatch, table)
+
+    resp = app.lambda_handler(_reorder({"trip_id": "demo-trip"}), None)
+    assert resp["statusCode"] == 400
+    assert table.put_items == []
 
 
 # ─────────────────────────── GET ───────────────────────────
@@ -374,6 +437,66 @@ def test_chat_plain_conversation(monkeypatch):
     assert body["edited"] is False
     assert schedules.deleted_keys == []
     assert len(chats.put_items) == 2
+
+
+def test_chat_safety_net_forces_search(monkeypatch):
+    """두뇌가 search 스위치를 놓쳐도(빈 제안), 메시지에 장소 기미+좌표가 있으면
+    기본 검색어로 강제해 동선이 비지 않게 한다(간헐적 빈 제안 버그 방지)."""
+    schedules = _FakeTable(query_items=[])
+    chats = _FakeTable(query_items=[])
+    _install_tables(monkeypatch, schedules, chats)
+
+    # #1(두뇌)=search 비움(놓침), #2(큐레이터)=동선 제안
+    monkeypatch.setattr(app, "_invoke_claude", _fake_claude([
+        '{"reply":"음...","search":"","edits":[]}',
+        '{"reply":"이렇게 짜봤어요","proposed_plan":'
+        '[{"place_id":"A","time_label":"14:00","reason":"좋음"}]}',
+    ]))
+    captured = {"keyword": None}
+
+    def _fake_search(keyword, lat, lng, language):
+        captured["keyword"] = keyword
+        return [{"place_id": "A", "name": "장소 A", "rating": 4.5, "distance_m": 100,
+                 "address": "토론토", "location": {"lat": 43.6, "lng": -79.3}}]
+
+    monkeypatch.setattr(app, "_search_places", _fake_search)
+
+    resp = app.lambda_handler(_chat({
+        "trip_id": "demo-trip", "message": "일정 짜줘",
+        "lat": 43.6453, "lng": -79.3806,
+    }), None)
+
+    body = json.loads(resp["body"])
+    assert captured["keyword"] == "근처 가볼만한 곳"     # 안전망이 기본 검색어 강제
+    assert len(body["proposed_plan"]) == 1
+
+
+def test_chat_safety_net_skips_when_no_intent_keyword(monkeypatch):
+    """장소 기미가 없는 인사말이면 좌표가 있어도 안전망은 발동하지 않는다."""
+    schedules = _FakeTable(query_items=[])
+    chats = _FakeTable(query_items=[])
+    _install_tables(monkeypatch, schedules, chats)
+
+    called = {"search": False}
+
+    def _no_search(*a, **k):
+        called["search"] = True
+        return []
+
+    monkeypatch.setattr(app, "_search_places", _no_search)
+    monkeypatch.setattr(app, "_invoke_claude", _fake_claude([
+        '{"reply":"천만에요!","search":"","edits":[]}',
+    ]))
+
+    resp = app.lambda_handler(_chat({
+        "trip_id": "demo-trip", "message": "고마워, 잘 가",
+        "lat": 43.6453, "lng": -79.3806,
+    }), None)
+
+    body = json.loads(resp["body"])
+    assert called["search"] is False
+    assert body["proposed_plan"] == []
+    assert body["reply"] == "천만에요!"
 
 
 def test_chat_search_without_location_skips(monkeypatch):

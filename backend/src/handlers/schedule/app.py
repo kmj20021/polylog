@@ -100,8 +100,11 @@ def lambda_handler(event, context):
         return _handle_delete(event)
     if method == "POST":
         body = _parse_body(event)
-        if (body.get("action") or "").lower() == "chat":
+        action = (body.get("action") or "").lower()
+        if action == "chat":
             return _handle_chat(body)
+        if action == "reorder":
+            return _handle_reorder(body)
         return _handle_post(body)
     return _resp(405, {"error": f"지원하지 않는 메서드: {method}"})
 
@@ -144,6 +147,49 @@ def _handle_post(body):
 
     _table().put_item(Item=item)
     return _resp(200, {"type": "added", "item": _json_safe(item)})
+
+
+# ─────────────────────────── 순서 재정렬(POST action="reorder") ───────────────────────────
+def _handle_reorder(body):
+    """타임라인 순서를 통째로 다시 맞춘다(드래그 재정렬).
+
+    왜 '전체 순서'를 받나: DynamoDB 는 정렬키(SK=start_time)를 바꿀 수 없어, 순서를 바꾸려면
+    delete 후 새 start_time 으로 put 해야 한다(`_rewrite_order`). 한 칸만 옮겨도 그 뒤 항목들의
+    start_time 이 줄줄이 바뀌므로, 클라이언트가 '원하는 최종 순서'(start_time 목록)를 통째로
+    보내는 편이 단순하고 안전하다(부분 계산보다 경합·누락에 강함).
+
+    입력 : {action:"reorder", trip_id, order:["<start_time>", ...]}  ← order = 새 순서
+    출력 : {type:"reordered", items:[...재배치된 타임라인...]}
+    """
+    trip_id = _clean(body.get("trip_id")) or _DEFAULT_TRIP_ID
+    order = body.get("order")
+    if not isinstance(order, list) or not order:
+        return _resp(400, {"error": "order(새 순서의 start_time 목록)는 필수입니다."})
+
+    current = _load_schedule(trip_id)
+    by_st = {it.get("start_time"): it for it in current}
+
+    # order 가 가리키는 항목을 그 순서대로 모으되, 중복/존재하지 않는 키는 건너뛴다.
+    seen = set()
+    ordered = []
+    for st in order:
+        it = by_st.get(_clean(st))
+        if it is not None and it["start_time"] not in seen:
+            ordered.append(it)
+            seen.add(it["start_time"])
+    # order 에 빠진 기존 항목은 원래 순서대로 뒤에 보존(드래그 중 다른 기기가 추가했을 때 등 방어).
+    for it in current:
+        if it["start_time"] not in seen:
+            ordered.append(it)
+            seen.add(it["start_time"])
+
+    new_items = _rewrite_order(trip_id, ordered)
+    return _resp(200, {
+        "type": "reordered",
+        "trip_id": trip_id,
+        "count": len(new_items),
+        "items": [_json_safe(it) for it in new_items],
+    })
 
 
 # ─────────────────────────── 조회(GET) ───────────────────────────
@@ -196,6 +242,14 @@ def _handle_chat(body):
     search = (brain.get("search") or "").strip()
     edits = brain.get("edits") or []
 
+    # 1-b) 안전망 — 의도판단(분류)이 가끔 흔들려 search 스위치를 놓친다.
+    #      사용자 메시지에 '장소를 원한다'는 기미가 뚜렷하고 좌표가 있는데도
+    #      search·edits 가 둘 다 비었으면, 기본 검색어를 강제해 큐레이터가
+    #      동선을 내도록 한다(빈 제안 방지). 모델 판단을 덮어쓰진 않고 '비었을 때만' 보강.
+    if (not search and not edits
+            and _is_number(lat) and _is_number(lng) and _wants_places(message)):
+        search = "근처 가볼만한 곳"
+
     # 2) 기존 일정 편집(삭제/순서변경)을 즉시 반영.
     schedule, edited = _apply_edits(trip_id, schedule, edits)
 
@@ -227,6 +281,21 @@ def _handle_chat(body):
     })
 
 
+# 안전망용 키워드 — '새 장소를 원한다'는 신호. 의도판단이 흔들려도 이게 잡히면
+# 좌표가 있을 때 기본 검색을 강제한다(빈 제안 방지). 순수 함수라 테스트가 쉽다.
+_WANTS_PLACES_KEYWORDS = (
+    "짜줘", "짜 줘", "일정", "추천", "추가", "넣어", "가볼", "가 볼", "갈만", "갈 만",
+    "근처", "주변", "어디", "맛집", "카페", "관광", "명소", "구경", "코스", "동선",
+    "다른 곳", "또 ", "더 ", "찾아", "알려",
+)
+
+
+def _wants_places(message):
+    """사용자 메시지에 '장소를 원하는' 기미가 있으면 True(안전망 발동 조건)."""
+    text = (message or "")
+    return any(kw in text for kw in _WANTS_PLACES_KEYWORDS)
+
+
 def _plan_intent(message, history, schedule, language):
     """Bedrock #1 — 대화+일정 맥락에서 {reply, search, edits} 를 판단한다."""
     prompt = (
@@ -248,7 +317,9 @@ def _plan_intent(message, history, schedule, language):
         "- 해당 없으면 search=\"\" 이고 edits=[].\n"
         f"- 답변 언어: {language}."
     )
-    parsed = _safe_json(_try_claude(prompt, 512, _INTENT_MODEL_ID))
+    # 분류 작업이라 무작위성을 낮춰(0.1) '검색 스위치(search)' 누락을 줄인다.
+    # (예전 0.5 에선 같은 요청도 ~1/5 확률로 search 를 안 켜 동선 제안이 비었다.)
+    parsed = _safe_json(_try_claude(prompt, 512, _INTENT_MODEL_ID, temperature=0.1))
     if not isinstance(parsed, dict):
         return {"reply": "", "search": "", "edits": []}
     return parsed
@@ -478,23 +549,26 @@ def _haversine(lat1, lng1, lat2, lng2):
 
 
 # ─────────────────────────── Bedrock ───────────────────────────
-def _try_claude(prompt, max_tokens, model_id):
+def _try_claude(prompt, max_tokens, model_id, temperature=0.5):
     """Bedrock 호출 — 실패해도 앱이 죽지 않도록 빈 문자열로 폴백.
 
     단, 실패 원인은 CloudWatch 에 남긴다(AccessDenied/Validation 등을 눈으로 확인해야
-    모델 ID·액세스 문제를 진단할 수 있다). 예전엔 조용히 삼켜 '살펴볼게요'만 남았었다."""
+    모델 ID·액세스 문제를 진단할 수 있다). 예전엔 조용히 삼켜 '살펴볼게요'만 남았었다.
+
+    temperature: 호출 성격에 맞춰 무작위성을 조절. 분류(의도판단)는 낮게(결정적에 가깝게),
+                 창작(동선 큐레이션)은 약간 높게 둔다."""
     try:
-        return _invoke_claude(prompt, max_tokens, model_id)
+        return _invoke_claude(prompt, max_tokens, model_id, temperature)
     except Exception as exc:  # noqa: BLE001 — 모델/네트워크 오류는 빈 응답으로 흡수
         _log.warning("Bedrock 호출 실패 (model=%s): %s", model_id, exc)
         return ""
 
 
-def _invoke_claude(prompt, max_tokens, model_id):
+def _invoke_claude(prompt, max_tokens, model_id, temperature=0.5):
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
-        "temperature": 0.5,
+        "temperature": temperature,
         "messages": [
             {"role": "user", "content": [{"type": "text", "text": prompt}]}
         ],

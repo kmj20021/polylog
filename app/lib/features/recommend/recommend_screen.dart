@@ -83,13 +83,43 @@ class _RecommendScreenState extends State<RecommendScreen> {
     }
   }
 
+  /// 칩을 드래그해 순서를 바꿨을 때: ① 화면에서 먼저 옮겨 즉시 반응시키고
+  /// ② 서버에 '새 순서'(start_time 목록)를 보내 영구 반영, ③ 서버가 다시 매긴
+  /// start_time 으로 동기화한다. 실패하면 서버 상태로 되돌려 어긋남을 막는다.
+  Future<void> _reorder(int oldIndex, int newIndex) async {
+    // onReorderItem 은 newIndex 를 이미 보정해 준다(예전 onReorder 처럼 직접 -1 안 해도 됨).
+    if (oldIndex == newIndex) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      final moved = _timeline.removeAt(oldIndex);
+      _timeline.insert(newIndex, moved);
+    });
+
+    try {
+      await DioClient().post<Map<String, dynamic>>(
+        '/schedule',
+        data: {
+          'action': 'reorder',
+          'trip_id': _tripId,
+          'order': _timeline.map((e) => e.startTime).toList(),
+        },
+      );
+      await _loadTimeline(); // 서버가 재부여한 start_time 으로 맞춘다.
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('순서 변경 실패: $e')));
+      _loadTimeline(); // 서버 상태로 되돌림.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('AI 장소 추천')),
       body: Column(
         children: [
-          _TimelineBar(items: _timeline),
+          _TimelineBar(items: _timeline, onReorder: _reorder),
           Expanded(child: PlaceChat(onAdd: _addToSchedule)),
         ],
       ),
@@ -99,13 +129,16 @@ class _RecommendScreenState extends State<RecommendScreen> {
 
 /// 상단 타임라인에 표시할 '담은 일정' 1개(서버 polylog-schedules 항목).
 class _ScheduleItem {
+  final String startTime; // SK — 재정렬 시 '이 순서로 바꿔줘'를 서버에 알리는 키
   final String title;
   final String placeName;
-  const _ScheduleItem({required this.title, required this.placeName});
+  const _ScheduleItem(
+      {required this.startTime, required this.title, required this.placeName});
 
   factory _ScheduleItem.fromJson(Map<String, dynamic> j) {
     final name = (j['place_name'] ?? '').toString();
     return _ScheduleItem(
+      startTime: (j['start_time'] ?? '').toString(),
       title: (j['title'] ?? name).toString(),
       placeName: name,
     );
@@ -113,9 +146,16 @@ class _ScheduleItem {
 }
 
 /// 상단 '여행 일정' 타임라인 — 담은 장소가 1 → 2 → 3 순서로 가로로 쌓인다.
+///
+/// 칩을 꾹 눌러(롱프레스) 좌우로 드래그하면 방문 순서를 바꿀 수 있다.
+/// 추천에서 '담기'는 일단 맨 뒤에 붙으므로, 원하는 자리로 끌어다 '중간에' 넣는다.
 class _TimelineBar extends StatelessWidget {
   final List<_ScheduleItem> items;
-  const _TimelineBar({required this.items});
+
+  /// 드래그로 순서가 바뀌면 (이전 위치, 새 위치)를 부모에 알린다.
+  final void Function(int oldIndex, int newIndex) onReorder;
+
+  const _TimelineBar({required this.items, required this.onReorder});
 
   @override
   Widget build(BuildContext context) {
@@ -139,6 +179,15 @@ class _TimelineBar extends StatelessWidget {
               Text('(${items.length})',
                   style: theme.textTheme.labelMedium
                       ?.copyWith(color: scheme.onSurfaceVariant)),
+              if (items.length > 1) ...[
+                const Spacer(),
+                Icon(Icons.drag_indicator,
+                    size: 14, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 2),
+                Text('꾹 눌러 순서 변경',
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: scheme.onSurfaceVariant)),
+              ],
             ],
           ),
           const SizedBox(height: 8),
@@ -153,17 +202,24 @@ class _TimelineBar extends StatelessWidget {
                           ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
                   )
-                : ListView.separated(
+                : ReorderableListView.builder(
                     scrollDirection: Axis.horizontal,
+                    buildDefaultDragHandles: true, // 모바일: 롱프레스로 칩 전체를 잡아 드래그
+                    onReorderItem: onReorder,
                     itemCount: items.length,
-                    separatorBuilder: (_, __) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Icon(Icons.chevron_right,
-                          size: 18, color: scheme.onSurfaceVariant),
-                    ),
-                    itemBuilder: (context, i) => _TimelineChip(
-                      index: i + 1,
-                      label: items[i].placeName,
+                    // 드래그 중 떠 있는 칩 배경이 비치지 않도록 투명 처리.
+                    proxyDecorator: (child, index, animation) =>
+                        Material(color: Colors.transparent, child: child),
+                    itemBuilder: (context, i) => Padding(
+                      // ReorderableListView 는 각 항목에 고유 Key 가 필수.
+                      key: ValueKey(items[i].startTime),
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Center(
+                        child: _TimelineChip(
+                          index: i + 1,
+                          label: items[i].placeName,
+                        ),
+                      ),
                     ),
                   ),
           ),
