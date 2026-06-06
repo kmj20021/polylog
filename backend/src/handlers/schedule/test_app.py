@@ -114,6 +114,118 @@ def test_wants_places_detects_request():
     assert app._wants_places(None) is False
 
 
+def test_normalize_searches_list_and_legacy():
+    # 리스트면 공백 제거 + 빈 항목 제거
+    assert app._normalize_searches(
+        {"searches": [" 광화문 경복궁 ", "", "북촌 카페"]}) == ["광화문 경복궁", "북촌 카페"]
+    # 옛 단일 'search' 키 하위호환
+    assert app._normalize_searches({"search": "조용한 카페"}) == ["조용한 카페"]
+    # searches 가 있으면 단일 search 는 무시
+    assert app._normalize_searches(
+        {"searches": ["A"], "search": "B"}) == ["A"]
+    # 둘 다 없으면 빈 리스트
+    assert app._normalize_searches({}) == []
+
+
+def test_search_places_multi_query_dedupes(monkeypatch):
+    # 두 검색어가 겹치는 후보(B)를 반환해도 place_id 로 중복 제거된다.
+    calls = []
+
+    def _fake_post(url, payload, api_key):
+        calls.append(payload)
+        if "관광" in payload["textQuery"]:
+            return {"places": [
+                {"id": "P1", "displayName": {"text": "경복궁"},
+                 "location": {"latitude": 37.5, "longitude": 126.9}},
+                {"id": "P2", "displayName": {"text": "겹침장소"},
+                 "location": {"latitude": 37.6, "longitude": 126.98}},
+            ]}
+        return {"places": [
+            {"id": "P2", "displayName": {"text": "겹침장소"},  # 중복
+             "location": {"latitude": 37.6, "longitude": 126.98}},
+            {"id": "P3", "displayName": {"text": "북촌카페"},
+             "location": {"latitude": 37.58, "longitude": 126.99}},
+        ]}
+
+    monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "k")
+    monkeypatch.setattr(app, "_places_post", _fake_post)
+
+    out = app._search_places(["광화문 경복궁 관광", "북촌 카페"], "ko")
+
+    ids = [p["place_id"] for p in out]
+    assert ids == ["P1", "P2", "P3"]            # 입력 순서 보존 + 중복 1개 제거
+    assert len(calls) == 2
+    # region 모드(lat/lng 없음) → locationBias 를 붙이지 않는다(그 지역을 그대로 검색).
+    assert all("locationBias" not in c for c in calls)
+    # distance_m 은 origin 이 없으므로 None
+    assert all(p["distance_m"] is None for p in out)
+
+
+def test_search_places_biases_when_coords_given(monkeypatch):
+    captured = {}
+
+    def _fake_post(url, payload, api_key):
+        captured.update(payload)
+        return {"places": [
+            {"id": "P1", "displayName": {"text": "근처카페"},
+             "location": {"latitude": 43.6, "longitude": -79.3}},
+        ]}
+
+    monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "k")
+    monkeypatch.setattr(app, "_places_post", _fake_post)
+
+    out = app._search_places(["카페"], "ko", 43.6453, -79.3806)
+    assert "locationBias" in captured              # 근처 모드 → 위치 편향
+    assert out[0]["distance_m"] is not None         # origin 있으니 거리 계산됨
+
+
+def test_chat_region_plans_without_gps(monkeypatch):
+    """지역명을 말하면 GPS 없이도, 현재 위치 편향 없이 그 지역으로 동선을 짠다(멀티카테고리)."""
+    schedules = _FakeTable(query_items=[])
+    chats = _FakeTable(query_items=[])
+    _install_tables(monkeypatch, schedules, chats)
+
+    # #1(두뇌): region + 종류별 searches, #2(큐레이터): 관광+식사+카페 섞은 동선
+    monkeypatch.setattr(app, "_invoke_claude", _fake_claude([
+        '{"reply":"좋아요!","region":"서울 광화문 북촌",'
+        '"searches":["광화문 경복궁 관광","광화문 칼국수 맛집","북촌 카페"],"edits":[]}',
+        '{"reply":"광화문에서 북촌으로 이렇게 돌아요","proposed_plan":['
+        '{"place_id":"G","time_label":"오전","reason":"대표 관광"},'
+        '{"place_id":"K","time_label":"점심","reason":"칼국수"},'
+        '{"place_id":"C","time_label":"오후","reason":"카페"}]}',
+    ]))
+
+    captured = {"queries": None, "lat": "unset", "lng": "unset"}
+
+    def _fake_search(queries, language, lat=None, lng=None):
+        captured["queries"] = queries
+        captured["lat"] = lat
+        captured["lng"] = lng
+        return [
+            {"place_id": "G", "name": "경복궁", "rating": 4.7, "distance_m": None,
+             "address": "서울 광화문", "location": {"lat": 37.5, "lng": 126.97}},
+            {"place_id": "K", "name": "황생가 칼국수", "rating": 4.4, "distance_m": None,
+             "address": "서울 북촌", "location": {"lat": 37.58, "lng": 126.98}},
+            {"place_id": "C", "name": "떼스 오트", "rating": 4.5, "distance_m": None,
+             "address": "서울 북촌", "location": {"lat": 37.58, "lng": 126.99}},
+        ]
+
+    monkeypatch.setattr(app, "_search_places", _fake_search)
+
+    # ⭐ lat/lng 를 전혀 보내지 않는다(GPS 꺼짐) — 그래도 지역명으로 동선이 나와야 함.
+    resp = app.lambda_handler(_chat({
+        "trip_id": "demo-trip", "message": "서울 광화문 갔다가 북촌 갈 건데 밥이랑 구경거리 짜줘",
+    }), None)
+
+    body = json.loads(resp["body"])
+    assert captured["queries"] == [
+        "광화문 경복궁 관광", "광화문 칼국수 맛집", "북촌 카페"]
+    assert captured["lat"] is None and captured["lng"] is None   # region → 편향 안 함
+    names = [p["place_name"] for p in body["proposed_plan"]]
+    assert names == ["경복궁", "황생가 칼국수", "떼스 오트"]       # 관광→식사→카페 섞임·순서
+    assert body["proposed_plan"][0]["time_label"] == "오전"
+
+
 def test_schedule_text_numbers_items():
     txt = app._schedule_text([
         {"place_name": "A", "time_label": "14:00"},
@@ -452,10 +564,11 @@ def test_chat_safety_net_forces_search(monkeypatch):
         '{"reply":"이렇게 짜봤어요","proposed_plan":'
         '[{"place_id":"A","time_label":"14:00","reason":"좋음"}]}',
     ]))
-    captured = {"keyword": None}
+    captured = {"queries": None, "lat": "unset"}
 
-    def _fake_search(keyword, lat, lng, language):
-        captured["keyword"] = keyword
+    def _fake_search(queries, language, lat=None, lng=None):
+        captured["queries"] = queries
+        captured["lat"] = lat
         return [{"place_id": "A", "name": "장소 A", "rating": 4.5, "distance_m": 100,
                  "address": "토론토", "location": {"lat": 43.6, "lng": -79.3}}]
 
@@ -467,7 +580,8 @@ def test_chat_safety_net_forces_search(monkeypatch):
     }), None)
 
     body = json.loads(resp["body"])
-    assert captured["keyword"] == "근처 가볼만한 곳"     # 안전망이 기본 검색어 강제
+    assert captured["queries"] == ["근처 가볼만한 곳"]   # 안전망이 기본 검색어 강제
+    assert captured["lat"] == 43.6453                   # region 없음 → 근처 모드(편향)
     assert len(body["proposed_plan"]) == 1
 
 
@@ -515,14 +629,14 @@ def test_chat_search_without_location_skips(monkeypatch):
         '{"reply":"좋아요","search":"카페","edits":[]}',
     ]))
 
-    # lat/lng 없음 → 검색을 시도하지 않고 안내 문구를 덧붙인다.
+    # lat/lng 없고 지역명도 없음 → 검색을 시도하지 않고 '지역을 알려달라' 안내를 덧붙인다.
     resp = app.lambda_handler(_chat({
         "trip_id": "demo-trip", "message": "카페 추천",
     }), None)
 
     body = json.loads(resp["body"])
     assert called["search"] is False
-    assert "위치" in body["reply"]
+    assert "지역" in body["reply"]
     assert body["proposed_plan"] == []
 
 

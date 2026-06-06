@@ -14,12 +14,16 @@
 ── 대화형 플래너(_handle_chat) 흐름 ──────────────────────────────────────────
   입력 : {action:"chat", trip_id, message, lat, lng, language}
   1) polylog-chats 에서 '이전 대화', polylog-schedules 에서 '현재 일정'을 로드.
-  2) Bedrock #1(플래너 두뇌): 대화+일정+새 메시지 → {reply, search, edits} 판단.
-       - search : 새 장소 후보가 필요하면 검색 키워드, 아니면 "".
-       - edits  : 기존 일정 편집(remove/reorder). 현재 일정 '번호(1-based)' 기준.
+  2) Bedrock #1(플래너 두뇌): 대화+일정+새 메시지 → {reply, region, searches, edits} 판단.
+       - region  : 발화 속 지역/동선 앵커(예: "서울 광화문 북촌"). 없으면 "".
+       - searches: '하루 동선'에 필요한 종류별 검색어 리스트(관광 + 식사 + 카페 …).
+                   지역이 있으면 각 검색어에 지역명이 녹아 있다(예: "북촌 카페").
+       - edits   : 기존 일정 편집(remove/reorder). 현재 일정 '번호(1-based)' 기준.
   3) edits 를 즉시 적용(삭제/순서변경은 사용자가 명령한 것이므로 바로 반영).
-  4) search 가 있으면 Google Places(텍스트검색) 호출 → Bedrock #2(큐레이터)로
-     '방문 순서대로' 2~4곳을 골라 proposed_plan(제안 동선)을 만든다(아직 저장 X).
+  4) searches 가 있으면 Google Places(텍스트검색) 를 검색어마다 호출해 후보를 모으고
+     (place_id 중복 제거) → Bedrock #2(큐레이터)로 '관광·식사·카페를 섞어 방문 순서대로'
+     4~6곳을 골라 proposed_plan(제안 동선)을 만든다(아직 저장 X).
+     ※ region 이 있으면 현재 GPS 에 편향하지 않고 '그 지역'을 찾는다(다른 도시 일정 가능).
   5) 사용자 메시지 + AI 응답을 polylog-chats 에 저장(다음 턴의 기억).
   응답 : {type:"chat", reply, proposed_plan:[...], timeline:[...현재 일정...], edited:bool}
 
@@ -76,8 +80,10 @@ _FIELD_MASK = ",".join(
 )
 
 _DEFAULT_TRIP_ID = "demo-trip"   # 로그인/Trip 생성 전 PoC 고정값
-_DEFAULT_RADIUS_M = 2000         # 동선 후보 검색 반경(도보권 조금 넓게)
-_MAX_CANDIDATES = 8              # Places 후보 중 큐레이터에 넘길 상한
+_DEFAULT_RADIUS_M = 2000         # 근처 모드일 때 위치 편향 반경(도보권 조금 넓게)
+_MAX_SEARCHES = 4                # 의도판단이 뽑은 검색어 중 실제 호출할 상한(지연·요금 관리)
+_PER_QUERY_LIMIT = 6            # 검색어 1개당 가져올 후보 수
+_MAX_POOL = 16                  # 큐레이터에 넘길 후보 풀 상한(Bedrock 토큰 budget)
 _HISTORY_TURNS = 12             # Bedrock 에 넣을 최근 대화 메시지 수(토큰 budget)
 
 _CORS = {
@@ -232,6 +238,7 @@ def _handle_chat(body):
     language = _clean(body.get("language")) or "ko"
     lat = body.get("lat", body.get("latitude"))
     lng = body.get("lng", body.get("longitude"))
+    has_gps = _is_number(lat) and _is_number(lng)
 
     history = _load_history(trip_id)             # 이전 대화(최근 N)
     schedule = _load_schedule(trip_id)           # 현재 일정(raw, Decimal 유지)
@@ -239,32 +246,38 @@ def _handle_chat(body):
     # 1) 플래너 두뇌 — 무엇을 할지(검색 / 편집 / 그냥 대화) 판단.
     brain = _plan_intent(message, history, schedule, language)
     reply = brain.get("reply", "")
-    search = (brain.get("search") or "").strip()
+    region = _clean(brain.get("region"))         # 발화 속 지역/동선 앵커(없으면 "")
+    searches = _normalize_searches(brain)        # 종류별 검색어 리스트(하위호환 흡수)
     edits = brain.get("edits") or []
 
-    # 1-b) 안전망 — 의도판단(분류)이 가끔 흔들려 search 스위치를 놓친다.
-    #      사용자 메시지에 '장소를 원한다'는 기미가 뚜렷하고 좌표가 있는데도
-    #      search·edits 가 둘 다 비었으면, 기본 검색어를 강제해 큐레이터가
-    #      동선을 내도록 한다(빈 제안 방지). 모델 판단을 덮어쓰진 않고 '비었을 때만' 보강.
-    if (not search and not edits
-            and _is_number(lat) and _is_number(lng) and _wants_places(message)):
-        search = "근처 가볼만한 곳"
+    # 1-b) 안전망 — 의도판단(분류)이 가끔 흔들려 검색 스위치를 놓친다.
+    #      사용자 메시지에 '장소를 원한다'는 기미가 뚜렷한데 searches·edits 가 둘 다 비었고,
+    #      ★실제로 검색할 수 있을 때(지역명 또는 GPS 가 있을 때)만★ 기본 검색어를 강제해
+    #      큐레이터가 동선을 내도록 한다(빈 제안 방지). 위치 단서가 전혀 없으면 두뇌가 한
+    #      되묻기 답변을 그대로 둔다(불필요한 안내가 덧붙는 것을 막음).
+    if (not searches and not edits and _wants_places(message)
+            and (region or has_gps)):
+        searches = ["근처 가볼만한 곳"]
 
     # 2) 기존 일정 편집(삭제/순서변경)을 즉시 반영.
     schedule, edited = _apply_edits(trip_id, schedule, edits)
 
-    # 3) 새 장소가 필요하면 검색 → 큐레이터가 '방문 순서대로' 동선 제안.
+    # 3) 새 장소가 필요하면 검색 → 큐레이터가 '관광·식사·카페를 섞어 방문 순서대로' 동선 제안.
+    #    - region 이 있으면: 현재 GPS 에 편향하지 않고 '그 지역'을 그대로 찾는다(다른 도시 OK).
+    #    - region 이 없고 GPS 만 있으면: 기존처럼 현재 위치 주변(근처 모드).
     proposed_plan = []
-    if search and _is_number(lat) and _is_number(lng):
-        candidates = _search_places(search, float(lat), float(lng), language)
+    if searches and (region or has_gps):
+        bias_lat = None if region else float(lat)
+        bias_lng = None if region else float(lng)
+        candidates = _search_places(searches, language, bias_lat, bias_lng)
         if candidates:
-            curated = _curate_plan(message, schedule, candidates, language)
+            curated = _curate_plan(message, region, schedule, candidates, language)
             if curated.get("reply"):
                 reply = curated["reply"]          # 큐레이터 답변을 우선 사용
             proposed_plan = _resolve_plan(curated.get("proposed_plan") or [], candidates)
-    elif search and not (_is_number(lat) and _is_number(lng)):
-        reply = (reply + " (위치를 못 잡아 후보 검색을 못 했어요. "
-                 "메시지에 지역명을 함께 적어 주세요.)").strip()
+    elif searches and not region and not has_gps:
+        reply = (reply + " (어느 지역인지 알려주시면 거기로 일정을 짜드릴게요. "
+                 "예: \"서울 광화문 쪽으로\".)").strip()
 
     if not reply:
         reply = "어떤 일정을 도와드릴까요?"
@@ -297,7 +310,7 @@ def _wants_places(message):
 
 
 def _plan_intent(message, history, schedule, language):
-    """Bedrock #1 — 대화+일정 맥락에서 {reply, search, edits} 를 판단한다."""
+    """Bedrock #1 — 대화+일정 맥락에서 {reply, region, searches, edits} 를 판단한다."""
     prompt = (
         "당신은 여행자와 '대화하며 하루 일정을 함께 짜는' 친근한 AI 플래너입니다.\n"
         f"[현재 일정(번호순)]\n{_schedule_text(schedule)}\n\n"
@@ -305,28 +318,53 @@ def _plan_intent(message, history, schedule, language):
         f'[사용자의 새 메시지]\n"{message}"\n\n'
         "다음 JSON 만 출력하세요(설명·마크다운·코드펜스 금지):\n"
         '{"reply":"사용자에게 할 친근한 한국어 답변. 필요하면 되물어도 됨",'
-        '"search":"새 장소 후보가 필요하면 검색 키워드(예: 조용한 카페, 근처 관광지). 아니면 빈 문자열",'
+        '"region":"발화에 나온 지역/장소 앵커를 그대로(예: 서울 광화문 북촌). 없으면 빈 문자열",'
+        '"searches":["하루 동선에 필요한 \'종류별\' 검색어들. '
+        '예: 광화문 경복궁 관광, 광화문 칼국수 맛집, 북촌 카페"],'
         '"edits":[{"op":"remove","index":2},{"op":"reorder","order":[1,3,2]}]}\n'
         "규칙:\n"
-        "- 사용자가 추천/추가/짜줘/넣어줘/다른 곳 등 '새 장소'를 원하면 search 를 채운다.\n"
-        "- ⭐ 되묻기는 최소화한다. 장소를 원하는 기미가 조금이라도 있으면 분위기·시간을 "
-        "일일이 캐묻지 말고 합리적으로 가정해 바로 search 를 채운다(예: '일정 짜줘'→search='근처 가볼만한 곳'). "
-        "정말 무엇을 원하는지 전혀 알 수 없을 때만 reply 로 딱 한 번 되묻고 search 는 비운다.\n"
+        "- 사용자가 계획/일정/추천/구경거리/맛집/짜줘 등 '새 장소'를 원하면 searches 를 채운다.\n"
+        "- ⭐ '하루 계획'이면 한 종류만 넣지 말고 필요한 종류를 스스로 분해한다"
+        "(관광·구경거리 + 식사 + 카페 등). 각 종류를 searches 의 개별 항목으로 넣어라.\n"
+        "- ⭐ 발화에 지역/동선이 있으면(예: 광화문→북촌) region 에 담고, "
+        "각 검색어 앞에 그 지역명을 붙여라(예: '북촌 카페'). 그래야 그 지역에서 찾는다.\n"
+        "- 되묻기는 최소화한다. 장소를 원하는 기미가 있으면 분위기·시간을 일일이 캐묻지 말고 "
+        "합리적으로 가정해 바로 searches 를 채운다. 정말 알 수 없을 때만 reply 로 딱 한 번 "
+        "되묻고 searches 는 비운다.\n"
         "- 빼줘/삭제/순서 바꿔/먼저/나중에 등 '기존 일정 편집'은 edits 에 넣는다"
         "(index·order 는 위 현재 일정 번호 1-based).\n"
-        "- 해당 없으면 search=\"\" 이고 edits=[].\n"
+        "- 해당 없으면 region=\"\", searches=[], edits=[].\n"
         f"- 답변 언어: {language}."
     )
-    # 분류 작업이라 무작위성을 낮춰(0.1) '검색 스위치(search)' 누락을 줄인다.
-    # (예전 0.5 에선 같은 요청도 ~1/5 확률로 search 를 안 켜 동선 제안이 비었다.)
-    parsed = _safe_json(_try_claude(prompt, 512, _INTENT_MODEL_ID, temperature=0.1))
+    # 분류 작업이라 무작위성을 낮춰(0.1) '검색 스위치' 누락을 줄인다.
+    # (예전 0.5 에선 같은 요청도 ~1/5 확률로 검색을 안 켜 동선 제안이 비었다.)
+    parsed = _safe_json(_try_claude(prompt, 600, _INTENT_MODEL_ID, temperature=0.1))
     if not isinstance(parsed, dict):
-        return {"reply": "", "search": "", "edits": []}
+        return {"reply": "", "region": "", "searches": [], "edits": []}
     return parsed
 
 
-def _curate_plan(message, schedule, candidates, language):
-    """Bedrock #2 — 실제 후보들 중 '방문 순서대로' 동선을 골라 제안한다."""
+def _normalize_searches(brain):
+    """두뇌가 준 searches(리스트)를 정리한다. 하위호환으로 옛 단일 'search' 키도 흡수.
+
+    - searches 가 리스트면 공백 제거 후 빈 문자열을 거른다.
+    - searches 가 비고 옛 'search'(문자열)만 있으면 [그것] 으로 감싼다.
+    """
+    out = []
+    raw = brain.get("searches")
+    if isinstance(raw, list):
+        for s in raw:
+            s = _clean(s)
+            if s:
+                out.append(s)
+    single = _clean(brain.get("search"))
+    if not out and single:
+        out.append(single)
+    return out
+
+
+def _curate_plan(message, region, schedule, candidates, language):
+    """Bedrock #2 — 섞인 후보 풀에서 '관광·식사·카페를 섞어 방문 순서대로' 동선을 짠다."""
     brief = [
         {"place_id": c["place_id"], "name": c["name"], "rating": c.get("rating"),
          "distance_m": c.get("distance_m"), "address": c.get("address", "")}
@@ -335,17 +373,23 @@ def _curate_plan(message, schedule, candidates, language):
     prompt = (
         "당신은 여행 동선을 짜는 현지 가이드입니다.\n"
         f'[사용자 요청]\n"{message}"\n\n'
+        f"[지역/동선]\n{region or '(현재 위치 주변)'}\n\n"
         f"[현재 일정]\n{_schedule_text(schedule)}\n\n"
-        f"[근처 실제 후보(JSON)]\n{json.dumps(brief, ensure_ascii=False)}\n\n"
-        "사용자 요청과 현재 일정을 고려해, 추가하면 좋을 곳을 '방문 순서대로' 골라 "
-        "동선을 제안하세요. 다음 JSON 만 출력(설명·코드펜스 금지):\n"
+        f"[실제 후보(JSON)]\n{json.dumps(brief, ensure_ascii=False)}\n\n"
+        "사용자 요청·지역·현재 일정을 고려해, 하루 동선을 '방문 순서대로' 제안하세요. "
+        "다음 JSON 만 출력(설명·코드펜스 금지):\n"
         '{"reply":"제안 동선을 설명하는 친근한 한국어 답변",'
-        '"proposed_plan":[{"place_id":"후보의 place_id","time_label":"방문 시각대(예: 14:00, 점심)",'
+        '"proposed_plan":[{"place_id":"후보의 place_id","time_label":"방문 시각대(예: 오전, 점심, 14:00)",'
         '"reason":"한 줄 추천 이유"}]}\n'
-        "규칙: place_id 는 반드시 위 후보의 것만. 2~4곳 적당히. 이미 일정에 있는 곳은 제외. "
-        f"답변 언어: {language}."
+        "규칙:\n"
+        "- place_id 는 반드시 위 후보의 것만(목록에 없는 장소를 지어내지 말 것).\n"
+        "- ⭐ 하루 일정이면 종류를 섞어라(관광·구경거리 + 식사 + 카페). 같은 종류를 3곳 "
+        "연속으로 넣지 말 것(사용자가 명시적으로 한 종류만 원하면 예외).\n"
+        "- ⭐ 동선이 있으면(예: 광화문→북촌) 그 순서대로 배치하고, 식사는 끼니 시간대(점심·저녁)에 둬라.\n"
+        "- 4~6곳 정도로 적당히. 이미 현재 일정에 있는 곳은 제외.\n"
+        f"- 답변 언어: {language}."
     )
-    parsed = _safe_json(_try_claude(prompt, 800, _CURATE_MODEL_ID))
+    parsed = _safe_json(_try_claude(prompt, 1000, _CURATE_MODEL_ID))
     return parsed if isinstance(parsed, dict) else {}
 
 
@@ -483,27 +527,48 @@ def _history_text(items):
 
 
 # ─────────────────────────── Google Places (텍스트검색만) ───────────────────────────
-def _search_places(keyword, lat, lng, language):
-    """키워드 + 위치 편향 텍스트검색 → 공용 Place list. 키/네트워크 오류 시 빈 리스트."""
+def _search_places(queries, language, lat=None, lng=None):
+    """검색어 '리스트'를 순회하며 텍스트검색 → place_id 중복 제거한 후보 풀.
+
+    - queries : 종류별 검색어들(예: ["광화문 경복궁 관광", "북촌 카페"]). _MAX_SEARCHES 까지만.
+    - lat/lng : 주면 위치 편향(근처 모드). 지역 발화일 땐 호출부가 None 을 줘서 편향 없이
+                '그 지역'을 그대로 찾게 한다(다른 도시 일정 가능 — B-1 해결).
+    한 검색이 키/네트워크 오류로 실패해도 나머지는 진행한다(부분 성공 허용)."""
     api_key = os.environ.get("GOOGLE_PLACES_API_KEY")
     if not api_key:
         return []
-    payload = {
-        "textQuery": keyword,
-        "languageCode": language,
-        "maxResultCount": _MAX_CANDIDATES,
-        "locationBias": {
-            "circle": {
-                "center": {"latitude": lat, "longitude": lng},
-                "radius": _DEFAULT_RADIUS_M,
+    biased = _is_number(lat) and _is_number(lng)
+    pool = {}  # place_id → place (입력 순서 보존 = 종류 섞임 유지)
+    for kw in queries[:_MAX_SEARCHES]:
+        kw = _clean(kw)
+        if not kw:
+            continue
+        payload = {
+            "textQuery": kw,
+            "languageCode": language,
+            "maxResultCount": _PER_QUERY_LIMIT,
+        }
+        if biased:
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": float(lat), "longitude": float(lng)},
+                    "radius": _DEFAULT_RADIUS_M,
+                }
             }
-        },
-    }
-    try:
-        data = _places_post(_PLACES_TEXT_URL, payload, api_key)
-    except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
-        return []
-    return [_normalize_place(raw, lat, lng) for raw in data.get("places", [])]
+        try:
+            data = _places_post(_PLACES_TEXT_URL, payload, api_key)
+        except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
+            continue
+        for raw in data.get("places", []):
+            place = _normalize_place(
+                raw,
+                float(lat) if biased else None,
+                float(lng) if biased else None,
+            )
+            pid = place.get("place_id")
+            if pid and pid not in pool:
+                pool[pid] = place
+    return list(pool.values())[:_MAX_POOL]
 
 
 def _places_post(url, payload, api_key):
@@ -525,7 +590,9 @@ def _normalize_place(raw, origin_lat, origin_lng):
     loc = raw.get("location") or {}
     plat, plng = loc.get("latitude"), loc.get("longitude")
     distance_m = None
-    if _is_number(plat) and _is_number(plng):
+    # origin(현재 위치)이 있을 때만 거리 계산. 지역 검색(편향 없음)이면 origin 이 None 이라 건너뜀.
+    if (_is_number(origin_lat) and _is_number(origin_lng)
+            and _is_number(plat) and _is_number(plng)):
         distance_m = round(_haversine(origin_lat, origin_lng, plat, plng))
     return {
         "place_id": raw.get("id", ""),

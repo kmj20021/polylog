@@ -43,8 +43,9 @@ class _SchedulePlannerState extends State<SchedulePlanner> {
   void initState() {
     super.initState();
     _items.add(const _PAi(
-      '여기서 대화로 하루 일정을 함께 짜요. 저는 이전 대화와 지금 일정을 기억해요.\n'
-      '예) "오후에 3시간, 조용한 곳 위주로 짜줘", "2번 빼줘", "순서 바꿔줘", "아까 카페 말고 다른 곳".',
+      '여기서 대화로 하루 일정을 함께 짜요. 가려는 지역과 하고 싶은 걸 말해 주세요.\n'
+      '예) "서울 광화문 갔다가 북촌 갈 건데 밥이랑 구경거리 짜줘", '
+      '"2번 빼줘", "순서 바꿔줘", "아까 카페 말고 다른 곳".',
     ));
     _ensureGps();
   }
@@ -538,7 +539,8 @@ class _GpsHint extends StatelessWidget {
         : mockLabel != null
             ? (Icons.bug_report, '테스트 위치: $mockLabel', scheme.tertiary)
             : hasPos
-                ? (Icons.my_location, '현재 위치 기준으로 동선을 짜요', scheme.primary)
+                ? (Icons.my_location, '현재 위치 기준 — 지역명을 말하면 그곳으로 짜요',
+                    scheme.primary)
                 : (Icons.location_off, '위치 꺼짐 — 메시지에 지역명을 함께 적어 주세요',
                     scheme.error);
     return Padding(
@@ -583,7 +585,7 @@ class _InputBar extends StatelessWidget {
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => onSend(),
                 decoration: InputDecoration(
-                  hintText: '일정을 말로 짜보세요 (예: 오후에 조용한 곳)',
+                  hintText: '어디서 뭐 할지 말해보세요 (예: 광화문→북촌, 밥이랑 구경)',
                   filled: true,
                   contentPadding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12),
