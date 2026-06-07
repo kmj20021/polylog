@@ -52,8 +52,10 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
         </intent>
-        <!-- 비라틴 메뉴판을 '구글 렌즈'로 유도할 때, 안드로이드 11+ 에서 구글 앱
-             액티비티를 명시적으로 실행/조회하려면 해당 패키지가 보여야 한다(없으면 실행 실패). -->
+        <!-- 비라틴 메뉴판을 '구글 렌즈'로 유도할 때, 안드로이드 11+ 에서 다른 앱을
+             실행/조회하려면 해당 패키지가 보여야 한다(없으면 실행 실패). 렌즈는 설치 형태가
+             둘이라(독립 Lens 앱 / 구글 앱 내장) 둘 다 등록한다. -->
+        <package android:name="com.google.ar.lens"/>
         <package android:name="com.google.android.googlequicksearchbox"/>
     </queries>
 </manifest>
