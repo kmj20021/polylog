@@ -117,8 +117,8 @@ Resources:
             Path: /planner
             Method: post
 
-  # 메뉴판 번역(서브1) — 사진 OCR(Textract) + 번역(Translate) + 추천(Bedrock Haiku).
-  # 이미지 바이트를 다루므로 메모리 256MB, 체인 호출(OCR→번역→Bedrock) 때문에 Timeout 30s.
+  # 메뉴판 번역(서브1) — 사진을 Bedrock(Claude Haiku) 비전으로 직접 읽어 번역+설명+추천.
+  # Textract 미사용(CJK OCR 불가). 이미지 바이트를 다루므로 메모리 256MB, 비전 호출 때문에 Timeout 30s.
   FnMenu:
     Type: AWS::Serverless::Function
     Properties:
@@ -139,9 +139,9 @@ Resources:
             Path: /menu
             Method: post
 
-  # 영수증 분석(서브2) — 사진 OCR(Textract DetectDocumentText) + 통화/품목/카테고리 인식(Bedrock Haiku)
+  # 영수증 분석(서브2) — 사진을 Bedrock(Claude Haiku) 비전으로 직접 읽어 통화/품목/카테고리 인식
   # + 원화 환산(외부 환율 API). fn-menu 와 같은 파이프라인이라 메모리 256MB, Timeout 30s.
-  # ⚠️ 영수증 전용 AnalyzeExpense 미사용 — SafeRole 권한 미확인 + B-3 교훈(권한 가정 금지).
+  # ⚠️ Textract 미사용(한글·일본어 CJK OCR 불가 → 비전으로 통일). 새 IAM 불필요.
   FnReceipt:
     Type: AWS::Serverless::Function
     Properties:

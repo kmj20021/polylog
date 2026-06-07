@@ -1,8 +1,8 @@
 """fn-receipt 순수 로직 단위 테스트 (AWS·네트워크 불필요).
 
 실행: cd backend && python -m pytest src/handlers/receipt/ -q
-Textract·Bedrock·S3·DynamoDB·환율API 는 monkeypatch 로 모킹한다.
-(OCR 은 AnalyzeExpense 가 아니라 DetectDocumentText + Bedrock 파싱 — B-3 교훈)
+Bedrock 비전·S3·DynamoDB·환율API 는 monkeypatch 로 모킹한다.
+(OCR 은 Textract 가 아니라 Bedrock 비전 — 한글/일본어 CJK 를 읽기 위해, 모듈 docstring 참조)
 """
 import base64
 import json
@@ -14,21 +14,23 @@ def _event(body, method="POST"):
     return {"httpMethod": method, "body": json.dumps(body)}
 
 
-# 1x1 PNG (디코드 성공용 더미 — 실제 OCR 는 monkeypatch 로 대체).
+# 1x1 PNG (디코드 성공용 더미 — 실제 비전 호출은 monkeypatch 로 대체).
 _PNG_1x1 = base64.b64encode(bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
     "890000000a49444154789c6300010000050001"
 )).decode()
 
 
-def _stub_aws(monkeypatch, lines, claude=None, rate=None):
-    """AWS 경계 헬퍼들을 인메모리로 대체. 반환된 dict 로 저장 호출을 관찰한다."""
+def _stub_aws(monkeypatch, vision=None, rate=None):
+    """AWS 경계 헬퍼들을 인메모리로 대체. 반환된 dict 로 저장 호출을 관찰한다.
+
+    vision: _invoke_claude_vision 대체 함수 (signature: prompt, image_bytes, max_tokens=...).
+    rate:   _fetch_rate 반환값(None 이면 환율 조회 실패 흉내).
+    """
     saved = {}
     monkeypatch.setattr(app, "_store_image", lambda b, t: f"receipts/{t}/x.jpg")
-    monkeypatch.setattr(app, "_ocr_lines", lambda b: list(lines))
-    if claude is not None:
-        monkeypatch.setattr(app, "_invoke_claude", claude)
-    # 환율: rate 가 None 이면 조회 실패 흉내, 숫자면 그 값을 반환.
+    if vision is not None:
+        monkeypatch.setattr(app, "_invoke_claude_vision", vision)
     monkeypatch.setattr(app, "_fetch_rate", lambda frm, to: rate)
     monkeypatch.setattr(
         app, "_save_receipt",
@@ -69,6 +71,12 @@ def test_oversize_image_rejected():
 def test_decode_image_data_uri_prefix():
     raw = "data:image/png;base64," + _PNG_1x1
     assert app._decode_image(raw) == base64.b64decode(_PNG_1x1)
+
+
+def test_media_type_png_vs_jpeg():
+    png = base64.b64decode(_PNG_1x1)
+    assert app._media_type(png) == "image/png"
+    assert app._media_type(b"\xff\xd8\xff\xe0jpegdata") == "image/jpeg"
 
 
 # ── 금액/통화 정규화 ─────────────────────────────────────────
@@ -124,9 +132,9 @@ def test_convert_total_rounds(monkeypatch):
     assert krw == 16875  # 12.50 * 1350 = 16875
 
 
-# ── OCR 빈 결과 ──────────────────────────────────────────────
-def test_empty_ocr_returns_note(monkeypatch):
-    _stub_aws(monkeypatch, lines=[])
+# ── 비전이 빈 결과를 주면 안내 note ──────────────────────────
+def test_empty_result_returns_note(monkeypatch):
+    _stub_aws(monkeypatch, vision=lambda *a, **k: "{}")
     r = app.lambda_handler(_event({"image_base64": _PNG_1x1}), None)
     body = json.loads(r["body"])
     assert r["statusCode"] == 200
@@ -135,9 +143,9 @@ def test_empty_ocr_returns_note(monkeypatch):
     assert body["note"]
 
 
-# ── 정상 흐름: OCR→Bedrock 구조화→환산→저장 ─────────────────
+# ── 정상 흐름: 비전 구조화→환산→저장 ────────────────────────
 def test_happy_path(monkeypatch):
-    claude = lambda p, max_tokens=2000: json.dumps({
+    vision = lambda prompt, image_bytes, max_tokens=2000: json.dumps({
         "merchant": "라멘이치란",
         "occurred_at": "2026-06-07",
         "currency": "jpy",
@@ -149,12 +157,7 @@ def test_happy_path(monkeypatch):
             "not-a-dict",
         ],
     })
-    saved = _stub_aws(
-        monkeypatch,
-        lines=["ICHIRAN", "豚骨ラーメン 900", "餃子 500", "合計 3500"],
-        claude=claude,
-        rate=9.0,
-    )
+    saved = _stub_aws(monkeypatch, vision=vision, rate=9.0)
     r = app.lambda_handler(_event({
         "image_base64": _PNG_1x1, "trip_id": "demo-trip", "home_currency": "KRW",
     }), None)
@@ -183,13 +186,13 @@ def test_happy_path(monkeypatch):
 
 # ── 통화 미인식 → 결과는 주되 환산만 비고 note ───────────────
 def test_unknown_currency_keeps_result(monkeypatch):
-    claude = lambda p, max_tokens=2000: json.dumps({
+    vision = lambda prompt, image_bytes, max_tokens=2000: json.dumps({
         "merchant": "Café",
         "currency": None,
         "total": "12.50",
         "items": [{"name_ko": "커피", "amount": "12.50", "category": "식비"}],
     })
-    _stub_aws(monkeypatch, lines=["Cafe", "Coffee 12.50"], claude=claude, rate=9.0)
+    _stub_aws(monkeypatch, vision=vision, rate=9.0)
     r = app.lambda_handler(_event({"image_base64": _PNG_1x1}), None)
     body = json.loads(r["body"])
     assert r["statusCode"] == 200
@@ -199,11 +202,11 @@ def test_unknown_currency_keeps_result(monkeypatch):
     assert "통화" in body["note"]
 
 
-# ── Bedrock 실패해도 결과 골격은 반환 ────────────────────────
-def test_bedrock_failure_is_safe(monkeypatch):
+# ── 비전 호출 실패해도 결과 골격은 반환 ──────────────────────
+def test_vision_failure_is_safe(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("bedrock down")
-    _stub_aws(monkeypatch, lines=["something"], claude=boom, rate=9.0)
+    _stub_aws(monkeypatch, vision=boom, rate=9.0)
     r = app.lambda_handler(_event({"image_base64": _PNG_1x1}), None)
     body = json.loads(r["body"])
     assert r["statusCode"] == 200
@@ -211,26 +214,31 @@ def test_bedrock_failure_is_safe(monkeypatch):
     assert body["currency"] is None
     assert body["total"] is None
     assert body["total_krw"] is None
-    assert body["occurred_at"]  # now_iso 폴백
+    assert body["occurred_at"]   # now_iso 폴백
+    assert body["note"]          # 빈 결과 안내
 
 
-# ── _analyze_receipt: 직접 구조화 검증 ───────────────────────
+# ── _analyze_receipt: 직접 구조화 검증(이미지 입력) ──────────
 def test_analyze_receipt_structures(monkeypatch):
-    monkeypatch.setattr(app, "_invoke_claude", lambda p, max_tokens=2000: json.dumps({
-        "merchant": "Shop",
-        "occurred_at": "2026-01-02",
-        "currency": "EUR",
-        "total": "20.00",
-        "items": [{"name_ko": "기념품", "amount": "20.00", "category": "쇼핑"}],
-    }))
-    out = app._analyze_receipt(["Shop", "Souvenir 20.00"], "KRW")
+    monkeypatch.setattr(app, "_invoke_claude_vision",
+                        lambda prompt, image_bytes, max_tokens=2000: json.dumps({
+                            "merchant": "Shop",
+                            "occurred_at": "2026-01-02",
+                            "currency": "EUR",
+                            "total": "20.00",
+                            "items": [{"name_ko": "기념품", "amount": "20.00", "category": "쇼핑"}],
+                        }))
+    out = app._analyze_receipt(b"fake-image-bytes", "KRW")
     assert out["currency"] == "EUR"
     assert out["total"] == "20.00"
     assert out["items"][0]["item_id"] == "r0"
     assert out["items"][0]["category"] == "쇼핑"
 
 
-def test_analyze_receipt_empty_lines():
-    out = app._analyze_receipt([], "KRW")
+def test_analyze_receipt_failure_returns_empty(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr(app, "_invoke_claude_vision", boom)
+    out = app._analyze_receipt(b"fake", "KRW")
     assert out["items"] == []
     assert out["currency"] is None
