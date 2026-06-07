@@ -1,28 +1,34 @@
-"""fn-receipt — 영수증 사진을 Bedrock 비전으로 직접 읽어 품목/금액/통화/원화환산 (서브2).
+"""fn-receipt — 영수증 사진을 Bedrock 비전으로 읽고, 지출 가계부(조회/수정/삭제)까지 (서브2).
 
-POST /receipt
-입력: {"trip_id":"demo-trip",
-       "image_base64":"<JPEG/PNG base64 (data URI 접두사 허용)>",
-       "home_currency":"KRW"}            # (선택) 환산 목표 통화(기본 KRW)
+POST /receipt  — action 으로 분기(새 라우트를 안 만들기 위해 fn-schedule 관례를 따름).
 
-응답:
-  {"type":"result","receipt_id":"<uuid>","photo_s3_key":"receipts/.../x.jpg",
-   "merchant":"<가게명>","occurred_at":"2026-06-07",
-   "currency":"JPY","total":"3500","total_krw":31500,
-   "items":[{"item_id":"r0","name_ko":"라멘","amount":"900","category":"식비"}, ...],
-   "note":null}
+1) action="analyze"(기본): 사진 한 장을 분석해 저장.
+   입력: {"trip_id":"demo-trip","image_base64":"<JPEG/PNG base64>","home_currency":"KRW"}
+2) action="list": 한 여행의 영수증 전체 조회(대시보드·날짜별 목록용).
+   입력: {"action":"list","trip_id":"demo-trip"}
+3) action="update": 저장된 영수증 한 건을 수정(사용자가 OCR 결과를 직접 보정).
+   입력: {"action":"update","trip_id":..,"receipt_id":..,"sk":<원래 SK>,
+          "occurred_at":"YYYY-MM-DD","merchant":..,"currency":"JPY","total":"3500",
+          "home_currency":"KRW","photo_s3_key":..,
+          "items":[{"name_ko":"라멘","amount":"900","category":"식비"}]}
+4) action="delete": 저장된 영수증 한 건 삭제.
+   입력: {"action":"delete","trip_id":..,"sk":<삭제할 SK>}
+
+응답(영수증 1건 공통 모양):
+  {"receipt_id","sk","occurred_at"(표시용 날짜),"merchant","currency","total",
+   "total_krw","rate"(적용 환율 문자열),"home_currency","photo_s3_key",
+   "items":[{"item_id","name_ko","amount","amount_krw","category"}],"note"}
 
 설계 요지(왜 이렇게 했나):
-- ⭐ OCR 을 **Amazon Textract 가 아니라 Bedrock(Claude Haiku) 비전**으로 한다. 이유: Textract
-  의 DetectDocumentText 는 라틴 문자(EN/ES/FR/DE/IT/PT)만 읽고 **한글·일본어(CJK)를 못 읽어**
-  한글 영수증의 통화·품목명이 통째로 사라지는 문제가 있었다. Claude 비전은 사진을 직접 읽어
-  모든 언어 + 통화기호("원"·¥·$)를 보고 통화까지 추론한다(B-3 교훈의 연장 — Bedrock 에 맡긴다).
-- 사진은 받는 즉시 polylog-media 에 SSE 로 보관(기록·재처리용). 저장 실패해도 분석은 계속.
-- 읽기·구조화(가게명·날짜·통화·합계·품목)를 **비전 한 콜**로 처리(_analyze_receipt).
-- 환율은 외부 API(exchangerate-api.com)를 urllib 로 GET. 키 없음/통화 미인식/조회 실패면
-  결과는 그대로 주되 total_krw=null + note.
-- 금액은 소수(12.50)라 DynamoDB float 거부를 피하려 **문자열로 저장**, 환산만 인메모리 float,
-  total_krw 만 반올림 정수(원).
+- ⭐ OCR = **Bedrock(Claude Haiku) 비전**. Textract(DetectDocumentText)는 한글·일본어(CJK)를
+  못 읽어 한국 영수증이 통째로 실패 → 사진을 직접 읽는 비전으로 통일(모든 언어+통화기호 인식).
+- ⭐ **정렬키(SK) 고유화**: 테이블 SK 속성명은 `occurred_at`(생성 시 고정)이라 못 바꾸지만,
+  그 *값*을 `날짜#receipt_id` 로 두면 **같은 날 여러 장**이 안 덮어쓰이고 날짜순 정렬도 유지된다
+  (**DynamoDB** — 복합키 Query). 표시용 깔끔한 날짜는 별도 속성 `display_date` 에 둔다.
+- ⭐ **수정은 서버 영속**: update 가 환율을 다시 계산(**적용 환율 rate 를 저장·반환** — "환율 명시")
+  하고 품목별 원화(amount_krw)까지 다시 계산 → 앱은 그대로 합산만 하면 카테고리별 대시보드 완성.
+- 금액·환율은 소수라 DynamoDB float 거부를 피하려 **문자열로 저장**, 환산은 인메모리 float,
+  원화 결과(total_krw·amount_krw)만 반올림 정수(원).
 
 리전: S3·DynamoDB = ap-northeast-2(서울), Bedrock(Haiku) = us-east-1.
 권한은 공용 역할 SafeRole-polylog(Bedrock·S3·DynamoDB). 환율 키만 env EXCHANGE_RATE_API_KEY.
@@ -35,8 +41,10 @@ import os
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import boto3
+from boto3.dynamodb.conditions import Key
 
 # us-east-1 에서만 Claude 3 Haiku 액세스가 승인됨(멀티모달 — 사진을 직접 읽음).
 _bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
@@ -54,7 +62,6 @@ _CATEGORIES = ["식비", "교통", "쇼핑", "숙박", "관광", "기타"]
 
 # ⚠️ 환율 제공자: exchangerate-api.com v6 pair 엔드포인트(실호출 검증됨).
 #    응답 JSON 의 conversion_rate(=1 FROM 당 TO 금액)만 쓴다.
-#    제공자가 다르면 이 상수와 _fetch_rate 의 응답 키 한 곳만 고치면 된다.
 _RATE_URL = "https://v6.exchangerate-api.com/v6/{key}/pair/{frm}/{to}"
 
 _CORS = {
@@ -75,6 +82,20 @@ def lambda_handler(event, context):
     except (TypeError, ValueError):
         return _resp(400, {"error": "본문이 올바른 JSON이 아닙니다."})
 
+    action = (body.get("action") or "analyze").strip().lower()
+    if action == "list":
+        return _handle_list(body)
+    if action == "update":
+        return _handle_update(body)
+    if action == "delete":
+        return _handle_delete(body)
+    return _handle_analyze(body)  # 기본(또는 action 미지정)
+
+
+# ──────────────────────────────────────────────────────────────
+# action: analyze — 사진 분석 + 저장
+# ──────────────────────────────────────────────────────────────
+def _handle_analyze(body):
     raw_b64 = body.get("image_base64") or ""
     if not raw_b64:
         return _resp(400, {"error": "image_base64 는 필수입니다."})
@@ -95,44 +116,119 @@ def lambda_handler(event, context):
     parsed = _analyze_receipt(image_bytes, home_currency)
 
     currency = parsed.get("currency")
-    total = parsed.get("total")          # 문자열(원본 통화 금액) 또는 None
-    items = parsed.get("items", [])
+    total = parsed.get("total")
     merchant = parsed.get("merchant", "")
-    occurred_at = parsed.get("occurred_at") or _now_iso()
+    occurred_date = parsed.get("occurred_at") or _today()
 
-    # 3) 원화(home_currency) 환산 — 합계만. 실패해도 결과는 반환하고 note 로 알린다.
-    total_krw, note = _convert_total(total, currency, home_currency)
+    # 3) 원화 환산(합계 + 품목별). 적용 환율(rate)도 함께 받는다.
+    total_krw, rate, items, note = _apply_conversion(
+        currency, total, parsed.get("items", []), home_currency)
 
-    # 아무것도 못 읽었으면(빈 결과) 안내 문구.
+    # 아무것도 못 읽었으면 안내.
     if not merchant and total is None and not items and note is None:
         note = "사진에서 영수증 정보를 읽지 못했어요. 더 또렷하게 다시 촬영해 주세요."
 
     receipt_id = str(uuid.uuid4())
+    sk = _make_sk(occurred_date, receipt_id)
 
-    # 4) 이력 저장(polylog-receipts, PK trip_id / SK occurred_at). 실패해도 결과는 반환.
-    _save_receipt(trip_id, occurred_at, {
+    record = {
+        "trip_id": trip_id,
+        "occurred_at": sk,            # SK(고유·정렬용) = 날짜#receipt_id
+        "display_date": occurred_date,  # 표시·수정·그룹핑용 깔끔한 날짜
         "receipt_id": receipt_id,
         "photo_s3_key": photo_s3_key,
         "merchant": merchant,
         "currency": currency,
         "total": total,
         "total_krw": total_krw,
+        "rate": rate,
         "home_currency": home_currency,
         "items": items,
-    })
+    }
+    _put_receipt(record)
 
-    return _resp(200, {
-        "type": "result",
+    out = _to_response(record)
+    out["note"] = note
+    return _resp(200, out)
+
+
+# ──────────────────────────────────────────────────────────────
+# action: list — 한 여행의 영수증 전체(대시보드·날짜별 목록)
+# ──────────────────────────────────────────────────────────────
+def _handle_list(body):
+    trip_id = (body.get("trip_id") or "demo-trip").strip()
+    items = _query_receipts(trip_id)
+    # SK(날짜#id) 오름차순 → 최신이 위로 오도록 뒤집는다(프론트는 날짜로 다시 그룹핑).
+    receipts = [_to_response(it) for it in reversed(items)]
+    return _resp(200, {"type": "list", "trip_id": trip_id, "receipts": receipts})
+
+
+# ──────────────────────────────────────────────────────────────
+# action: update — 저장된 영수증 1건 보정(영속 저장)
+# ──────────────────────────────────────────────────────────────
+def _handle_update(body):
+    trip_id = (body.get("trip_id") or "demo-trip").strip()
+    receipt_id = (body.get("receipt_id") or "").strip()
+    old_sk = (body.get("sk") or "").strip()
+    if not receipt_id or not old_sk:
+        return _resp(400, {"error": "update 에는 receipt_id 와 sk 가 필요합니다."})
+
+    home_currency = (body.get("home_currency") or "KRW").strip().upper()
+    occurred_date = _clean_str(body.get("occurred_at")) or _today()
+    merchant = str(body.get("merchant") or "").strip()
+    currency = _clean_currency(body.get("currency"))
+    total = _clean_amount(body.get("total"))
+
+    raw_items = body.get("items") or []
+    items_in = []
+    for it in raw_items:
+        if not isinstance(it, dict):
+            continue
+        items_in.append({
+            "item_id": str(it.get("item_id") or f"r{len(items_in)}"),
+            "name_ko": str(it.get("name_ko") or "").strip(),
+            "amount": _clean_amount(it.get("amount")),
+            "category": it.get("category") if it.get("category") in _CATEGORIES else "기타",
+        })
+
+    # 환율 재계산(수정된 통화·금액 기준) — 적용 환율을 다시 명시해 저장.
+    total_krw, rate, items, note = _apply_conversion(currency, total, items_in, home_currency)
+
+    new_sk = _make_sk(occurred_date, receipt_id)
+    record = {
+        "trip_id": trip_id,
+        "occurred_at": new_sk,
+        "display_date": occurred_date,
         "receipt_id": receipt_id,
-        "photo_s3_key": photo_s3_key,
+        "photo_s3_key": (body.get("photo_s3_key") or "").strip(),
         "merchant": merchant,
-        "occurred_at": occurred_at,
         "currency": currency,
         "total": total,
         "total_krw": total_krw,
+        "rate": rate,
+        "home_currency": home_currency,
         "items": items,
-        "note": note,
-    })
+    }
+    _put_receipt(record)
+    # 날짜가 바뀌면 SK 도 바뀌므로 옛 행을 지운다(아니면 새 행만 덮어씀).
+    if new_sk != old_sk:
+        _delete_receipt(trip_id, old_sk)
+
+    out = _to_response(record)
+    out["note"] = note
+    return _resp(200, {"type": "updated", **out})
+
+
+# ──────────────────────────────────────────────────────────────
+# action: delete
+# ──────────────────────────────────────────────────────────────
+def _handle_delete(body):
+    trip_id = (body.get("trip_id") or "demo-trip").strip()
+    sk = (body.get("sk") or "").strip()
+    if not sk:
+        return _resp(400, {"error": "delete 에는 sk 가 필요합니다."})
+    _delete_receipt(trip_id, sk)
+    return _resp(200, {"type": "deleted", "sk": sk})
 
 
 # ──────────────────────────────────────────────────────────────
@@ -182,11 +278,8 @@ def _analyze_receipt(image_bytes, home_currency):
 
     반환 dict:
       {"merchant":str, "occurred_at":str|None(YYYY-MM-DD), "currency":str|None(ISO4217),
-       "total":str|None, "items":[{"item_id":str,"name_ko":str,"amount":str|None,"category":str}]}
+       "total":str|None, "items":[{"item_id","name_ko","amount","category"}]}
     실패하면 빈 골격 — 호출부가 그대로 반환(note 로 안내).
-
-    Textract 대신 비전을 쓰는 이유는 모듈 상단 docstring 참조(CJK OCR 불가 → 한글/일본어 영수증
-    통째 실패). 비전은 사진의 언어·통화기호를 직접 보고 통화·품목 한국어화·카테고리를 한 번에 낸다.
     """
     empty = {"merchant": "", "occurred_at": None, "currency": None, "total": None, "items": []}
 
@@ -211,9 +304,8 @@ def _analyze_receipt(image_bytes, home_currency):
     except Exception:
         return empty
 
-    raw_items = data.get("items") or []
     items = []
-    for idx, it in enumerate(raw_items):
+    for it in (data.get("items") or []):
         if not isinstance(it, dict):
             continue
         items.append({
@@ -257,42 +349,77 @@ def _fetch_rate(frm, to):
         return None
 
 
-def _save_receipt(trip_id, occurred_at, fields):
-    """polylog-receipts(PK trip_id, SK occurred_at) 에 이력 저장. 실패는 무시(결과 반환 우선)."""
-    item = {"trip_id": trip_id, "occurred_at": occurred_at}
-    item.update(fields)
+def _put_receipt(record):
+    """polylog-receipts 에 한 건 저장(덮어쓰기). 실패는 무시(결과 반환 우선)."""
     try:
-        _receipts_table.put_item(Item=item)
+        _receipts_table.put_item(Item=record)
     except Exception:
         pass
+
+
+def _delete_receipt(trip_id, sk):
+    """SK(occurred_at 속성 값)로 한 건 삭제."""
+    try:
+        _receipts_table.delete_item(Key={"trip_id": trip_id, "occurred_at": sk})
+    except Exception:
+        pass
+
+
+def _query_receipts(trip_id):
+    """한 여행의 영수증 전체를 SK 오름차순으로 조회. 실패하면 빈 목록."""
+    try:
+        res = _receipts_table.query(KeyConditionExpression=Key("trip_id").eq(trip_id))
+        return res.get("Items", [])
+    except Exception:
+        return []
 
 
 # ──────────────────────────────────────────────────────────────
 # 순수 로직 (네트워크·AWS 불필요 — 단위테스트 직접 검증)
 # ──────────────────────────────────────────────────────────────
-def _convert_total(total, currency, home_currency):
-    """합계를 home_currency 로 환산 → (total_krw:int|None, note:str|None).
+def _apply_conversion(currency, total, items, home_currency):
+    """합계 + 품목별 원화 환산. 적용 환율(rate)도 함께 돌려준다("환율 명시").
 
-    환율 조회·통화 인식이 안 되면 total_krw 는 None 으로 두고 note 로 이유를 알린다(결과 자체는 유효).
-    금액 문자열을 인메모리 float 로만 계산하고 반올림 정수로 반환(원 단위).
+    반환: (total_krw:int|None, rate:str|None, items:list(amount_krw 추가), note:str|None)
+      - rate = 1 currency 당 home_currency 금액(문자열, 소수 4자리). DynamoDB float 회피 위해 문자열.
+      - 통화 미인식/환율 실패면 total_krw·amount_krw 는 None, note 로 이유 안내(결과 자체는 유효).
     """
-    if total is None:
-        return None, None
+    out_items = [dict(it) for it in items]  # 원본 보존(복사)
+    note = None
+    rate = None
+
     if not currency:
-        return None, "통화를 인식하지 못해 환산을 건너뛰었습니다."
-    rate = _fetch_rate(currency, home_currency)
-    if rate is None:
-        return None, f"{currency}→{home_currency} 환율을 가져오지 못해 환산을 건너뛰었습니다."
-    try:
-        return round(float(total) * rate), None
-    except (TypeError, ValueError):
-        return None, "합계 금액을 숫자로 해석하지 못했습니다."
+        note = "통화를 인식하지 못해 환산을 건너뛰었습니다."
+    else:
+        rate = _fetch_rate(currency, home_currency)
+        if rate is None:
+            note = f"{currency}→{home_currency} 환율을 가져오지 못해 환산을 건너뛰었습니다."
+
+    total_krw = None
+    if rate is not None and total is not None:
+        try:
+            total_krw = round(float(total) * rate)
+        except (TypeError, ValueError):
+            note = "합계 금액을 숫자로 해석하지 못했습니다."
+
+    for it in out_items:
+        it["amount_krw"] = None
+        amt = it.get("amount")
+        if rate is not None and amt is not None:
+            try:
+                it["amount_krw"] = round(float(amt) * rate)
+            except (TypeError, ValueError):
+                pass
+
+    rate_str = f"{rate:.4f}" if rate is not None else None
+    return total_krw, rate_str, out_items, note
 
 
 def _clean_amount(value):
-    """모델이 준 금액을 '숫자/소수점만' 문자열로 정규화. 숫자 없으면 None.
+    """금액을 '숫자/소수점만' 문자열로 정규화. 숫자 없으면 None.
 
     예) '¥1,200' → '1200', '12.50' → '12.50', 'free' → None, 1200(int) → '1200'.
+    DynamoDB 의 Decimal(읽기 결과) 도 str() 로 안전 처리.
     """
     if value is None:
         return None
@@ -316,14 +443,40 @@ def _clean_str(value):
     return s or None
 
 
+def _make_sk(display_date, receipt_id):
+    """SK(occurred_at 속성) 값 = '날짜#receipt_id' — 같은 날 여러 장도 고유·날짜순 정렬."""
+    return f"{display_date}#{receipt_id}"
+
+
+def _to_response(item):
+    """저장 레코드(또는 DynamoDB 조회 결과)를 프론트용 1건 모양으로 변환.
+
+    - "sk"        : 실제 SK 값(occurred_at 속성) — update/delete 의 키로 되돌려준다.
+    - "occurred_at": 표시용 깔끔한 날짜(display_date). 옛 행(‘#’ 없음)은 SK 에서 유추.
+    - 숫자(Decimal)는 _resp 의 default 가 정수/실수로 직렬화한다.
+    """
+    sk = str(item.get("occurred_at") or "")
+    display_date = item.get("display_date") or (sk.split("#")[0] if sk else "")
+    return {
+        "receipt_id": item.get("receipt_id"),
+        "sk": sk,
+        "occurred_at": display_date,
+        "merchant": item.get("merchant") or "",
+        "currency": item.get("currency"),
+        "total": item.get("total"),
+        "total_krw": item.get("total_krw"),
+        "rate": item.get("rate"),
+        "home_currency": item.get("home_currency") or "KRW",
+        "photo_s3_key": item.get("photo_s3_key") or "",
+        "items": item.get("items") or [],
+    }
+
+
 # ──────────────────────────────────────────────────────────────
 # 공용 유틸 (배포 패키지가 달라 import 불가 — 의존성 0 유지)
 # ──────────────────────────────────────────────────────────────
 def _invoke_claude_vision(prompt, image_bytes, max_tokens=768):
-    """Claude Haiku(멀티모달)에 이미지 + 지시문을 보내 텍스트 응답을 받는다.
-
-    content 블록에 image(base64) + text 를 함께 실어 보낸다(Anthropic Bedrock 메시지 형식).
-    """
+    """Claude Haiku(멀티모달)에 이미지 + 지시문을 보내 텍스트 응답을 받는다."""
     b64 = base64.b64encode(image_bytes).decode("ascii")
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
@@ -371,6 +524,10 @@ def _parse_json_object(text):
     return json.loads(text[start:end + 1])
 
 
+def _today():
+    return datetime.now(timezone.utc).date().isoformat()
+
+
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -379,5 +536,12 @@ def _resp(status, payload):
     return {
         "statusCode": status,
         "headers": _CORS,
-        "body": json.dumps(payload, ensure_ascii=False),
+        "body": json.dumps(payload, ensure_ascii=False, default=_json_default),
     }
+
+
+def _json_default(o):
+    """DynamoDB 조회 결과의 Decimal 을 JSON 으로(정수면 int, 아니면 float)."""
+    if isinstance(o, Decimal):
+        return int(o) if o % 1 == 0 else float(o)
+    raise TypeError(f"not serializable: {type(o)}")
