@@ -138,6 +138,12 @@ deploy_lambda "polylog-fn-menu" \
   "$(get_s3_key FnMenu)" \
   "app.lambda_handler" 30 256
 
+# 영수증 분석(서브2) — 메뉴판과 같은 OCR+Bedrock 체인이라 30s/256MB.
+# 권한은 SafeRole-polylog(Textract·S3·Bedrock·DynamoDB). 환율 키는 5-4 에서 주입.
+deploy_lambda "polylog-fn-receipt" \
+  "$(get_s3_key FnReceipt)" \
+  "app.lambda_handler" 30 256
+
 # ────────────────────────────────────────────
 # 5-1. fn-recommend 환경변수 주입 (Google Places 키)
 #   update-function-code 는 코드만 갱신하고 환경변수는 건드리지 않는다.
@@ -206,6 +212,27 @@ fi
 aws lambda wait function-updated \
   --function-name "polylog-fn-planner" --region "$REGION"
 log "  ✅ fn-planner 설정 완료"
+
+# ────────────────────────────────────────────
+# 5-4. fn-receipt 환경변수 주입 (환율 API 키)
+#   update-function-code 는 코드만 갱신하고 환경변수는 건드리지 않는다.
+#   → 키가 없으면 환율 조회가 None → 결과는 반환하되 total_krw=null + note(환산만 비활성).
+#   사용법(CloudShell): export EXCHANGE_RATE_API_KEY=... && bash scripts/deploy.sh
+#   키는 셸 환경에서만 읽으며 스크립트·git 에 하드코딩하지 않는다.
+# ────────────────────────────────────────────
+if [ -n "${EXCHANGE_RATE_API_KEY:-}" ]; then
+    log "fn-receipt 환경변수 주입 (EXCHANGE_RATE_API_KEY)"
+    aws lambda update-function-configuration \
+      --function-name "polylog-fn-receipt" \
+      --environment "Variables={EXCHANGE_RATE_API_KEY=$EXCHANGE_RATE_API_KEY}" \
+      --region "$REGION" --output text --query 'LastModified' > /dev/null
+    aws lambda wait function-updated \
+      --function-name "polylog-fn-receipt" --region "$REGION"
+    log "  ✅ 키 주입 완료"
+else
+    warn "EXCHANGE_RATE_API_KEY 미설정 → fn-receipt 환경변수 주입 건너뜀"
+    warn "   (이 상태로 /receipt 호출 시 OCR·분류는 되나 total_krw=null + note 로 환산만 비활성.)"
+fi
 
 # 추후 추가 예시:
 # deploy_lambda "polylog-fn-authorizer" "$(get_s3_key FnAuthorizer)" "app.lambda_handler" 10 128
