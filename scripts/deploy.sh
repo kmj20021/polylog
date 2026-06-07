@@ -234,8 +234,29 @@ else
     warn "   (이 상태로 /receipt 호출 시 OCR·분류는 되나 total_krw=null + note 로 환산만 비활성.)"
 fi
 
-# 추후 추가 예시:
-# deploy_lambda "polylog-fn-authorizer" "$(get_s3_key FnAuthorizer)" "app.lambda_handler" 10 128
+deploy_lambda "polylog-fn-authorizer" \
+  "$(get_s3_key FnAuthorizer)" \
+  "app.lambda_handler" 10 128
+
+# ────────────────────────────────────────────
+# 5-5. fn-authorizer 환경변수 주입 (Google Client ID)
+#   aud 검증에 사용. 없으면 "모든 유효 Google 토큰 허용" 상태가 되어 보안이 약해짐.
+#   사용법(CloudShell): export GOOGLE_CLIENT_ID=... && bash scripts/deploy.sh
+#   키는 셸 환경에서만 읽으며 스크립트·git 에 하드코딩하지 않는다.
+# ────────────────────────────────────────────
+if [ -n "${GOOGLE_CLIENT_ID:-}" ]; then
+    log "fn-authorizer 환경변수 주입 (GOOGLE_CLIENT_ID)"
+    aws lambda update-function-configuration \
+      --function-name "polylog-fn-authorizer" \
+      --environment "Variables={GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID}" \
+      --region "$REGION" --output text --query 'LastModified' > /dev/null
+    aws lambda wait function-updated \
+      --function-name "polylog-fn-authorizer" --region "$REGION"
+    log "  ✅ 키 주입 완료"
+else
+    warn "GOOGLE_CLIENT_ID 미설정 → fn-authorizer aud 검증 비활성"
+    warn "   (모든 유효 Google 토큰을 허용하는 상태. export 후 재배포 권장.)"
+fi
 
 # ────────────────────────────────────────────
 # 6. API Gateway 재배포 (스테이지 갱신)
