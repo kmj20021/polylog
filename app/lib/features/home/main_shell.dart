@@ -97,8 +97,7 @@ class _MainShellState extends State<MainShell> {
           key: ValueKey('recommend-$id'), tripId: id, tripName: name)),
       _scoped(ScheduleScreen(
           key: ValueKey('schedule-$id'), tripId: id, tripName: name)),
-      _scoped(MenuScreen(
-          key: ValueKey('menu-$id'), tripId: id, tripName: name)),
+      _scoped(MenuScreen(key: ValueKey('menu-$id'), tripName: name)),
       _scoped(ReceiptScreen(
           key: ValueKey('receipt-$id'), tripId: id, tripName: name)),
       TripsScreen(
