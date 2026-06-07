@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/dio_client.dart';
+import '../../core/auth/auth_service.dart';
 import 'trip.dart';
 
 /// '내 여행' 탭 — 여행을 만들고 고르고(현재 여행으로 선택) 관리한다.
@@ -160,6 +161,27 @@ class _TripsScreenState extends State<TripsScreen> {
     }
   }
 
+  /// 로그아웃 — 확인 후 AuthService.signOut(). 토큰이 지워지고 AuthGate 가 로그인 화면으로
+  /// 자동 전환한다(이 화면에서 직접 화면 이동을 하지 않는다).
+  Future<void> _logout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('로그아웃'),
+        content: const Text('로그아웃할까요?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('로그아웃')),
+        ],
+      ),
+    );
+    if (ok == true) await AuthService.instance.signOut();
+  }
+
   /// 생성/수정 공용 입력 시트. 확인을 누르면 입력값을, 취소면 null 을 돌려준다.
   Future<_TripForm?> _showTripForm({Trip? initial}) {
     return showModalBottomSheet<_TripForm>(
@@ -179,6 +201,11 @@ class _TripsScreenState extends State<TripsScreen> {
             tooltip: '새로고침',
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
+          ),
+          IconButton(
+            tooltip: '로그아웃',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout),
           ),
         ],
       ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'features/home/main_shell.dart';
+import 'features/auth/auth_gate.dart';
 
 void main() => runApp(const PolylogApp());
 
@@ -16,8 +16,8 @@ class PolylogApp extends StatelessWidget {
         colorSchemeSeed: const Color(0xFF3B6FB6),
         useMaterial3: true,
       ),
-      // 홈 = 메인 셸. 현재 여행을 자동 선택하고 근처/계획/메뉴/영수증을 바로 쓴다.
-      home: const MainShell(),
+      // 홈 = 인증 게이트. 로그인돼 있으면 메인 셸, 아니면 로그인 화면을 보여준다.
+      home: const AuthGate(),
     );
   }
 }
