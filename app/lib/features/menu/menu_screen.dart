@@ -27,10 +27,11 @@ class MenuScreen extends StatefulWidget {
 
 class _MenuScreenState extends State<MenuScreen> {
   final ImagePicker _picker = ImagePicker();
-  final TextEditingController _dietary = TextEditingController();
+  final TextEditingController _allergyInput = TextEditingController();
 
   bool _busy = false; // 분석 중(중복 방지 + 오버레이)
   bool _analyzed = false; // 한 번이라도 분석했는지(인트로 vs 결과)
+  final List<String> _allergies = []; // 등록한 알레르기(칩으로 누적)
   List<_MenuItem> _items = [];
   Set<String> _recommended = {}; // 추천 item_id
   String? _message; // 서버가 "못 읽었어요" 등 안내를 줄 때
@@ -38,16 +39,28 @@ class _MenuScreenState extends State<MenuScreen> {
 
   @override
   void dispose() {
-    _dietary.dispose();
+    _allergyInput.dispose();
     super.dispose();
   }
 
-  /// 알레르기 입력("갑각류, 땅콩")을 리스트로. 비어 있으면 빈 리스트.
-  List<String> _dietaryList() => _dietary.text
-      .split(RegExp(r'[,，]'))
-      .map((s) => s.trim())
-      .where((s) => s.isNotEmpty)
-      .toList();
+  /// 등록한 알레르기 목록(서버 추천 제외용으로 그대로 전송).
+  List<String> _dietaryList() => List<String>.from(_allergies);
+
+  /// 입력창의 텍스트를 칩으로 추가한다("갑각류, 땅콩"처럼 쉼표 다중 입력도 분해).
+  /// 대소문자 무시 중복은 건너뛴다.
+  void _addAllergy() {
+    final parts = _allergyInput.text
+        .split(RegExp(r'[,，]'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty);
+    setState(() {
+      for (final p in parts) {
+        final dup = _allergies.any((a) => a.toLowerCase() == p.toLowerCase());
+        if (!dup) _allergies.add(p);
+      }
+      _allergyInput.clear();
+    });
+  }
 
   // ── 서버 호출 ───────────────────────────────────────────────
   /// 카메라/갤러리로 메뉴판을 찍어 분석한다.
@@ -176,28 +189,58 @@ class _MenuScreenState extends State<MenuScreen> {
     );
   }
 
-  /// 알레르기 입력 카드 — 추천에서 제외할 재료를 쉼표로 적는다(다음 촬영부터 반영).
+  /// 알레르기 입력 카드 — 재료를 입력해 칩으로 등록한다(다음 촬영부터 추천 제외 +
+  /// 메뉴별 알레르기 태그에서 빨갛게 강조). 칩의 X 로 삭제.
   Widget _dietaryCard() {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
       child: Card(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(12, 6, 8, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.no_food_outlined, color: scheme.primary, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _dietary,
-                  decoration: const InputDecoration(
-                    labelText: '알레르기 · 못 먹는 재료',
-                    hintText: '예: 갑각류, 땅콩 (쉼표로 구분)',
-                    border: InputBorder.none,
+              Row(
+                children: [
+                  Icon(Icons.no_food_outlined, color: scheme.primary, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _allergyInput,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _addAllergy(),
+                      decoration: const InputDecoration(
+                        labelText: '알레르기 · 못 먹는 재료',
+                        hintText: '예: 갑각류 (입력 후 추가)',
+                        border: InputBorder.none,
+                      ),
+                    ),
+                  ),
+                  TextButton(onPressed: _addAllergy, child: const Text('추가')),
+                ],
+              ),
+              if (_allergies.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 30, top: 2),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 0,
+                    children: [
+                      for (final a in _allergies)
+                        Chip(
+                          avatar: Icon(Icons.warning_amber_rounded,
+                              size: 16, color: scheme.error),
+                          label: Text(a),
+                          onDeleted: () =>
+                              setState(() => _allergies.remove(a)),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                    ],
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -212,6 +255,8 @@ class _MenuScreenState extends State<MenuScreen> {
     if (_items.isEmpty) return _emptyResult();
 
     final recCount = _recommended.length;
+    final myAllergies = _allergies.map((e) => e.toLowerCase()).toSet();
+    final hasAllergens = _items.any((it) => it.allergens.isNotEmpty);
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
       children: [
@@ -233,7 +278,32 @@ class _MenuScreenState extends State<MenuScreen> {
             ),
           ),
         for (final it in _items)
-          _MenuItemTile(item: it, recommended: _recommended.contains(it.itemId)),
+          _MenuItemTile(
+            item: it,
+            recommended: _recommended.contains(it.itemId),
+            myAllergies: myAllergies,
+          ),
+        if (hasAllergens)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline,
+                    size: 13, color: Theme.of(context).colorScheme.outline),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    '알레르기 표시는 AI가 일반 조리법으로 추정한 값이에요. '
+                    '정확한 정보는 식당에 확인하세요.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -334,7 +404,18 @@ class _MenuScreenState extends State<MenuScreen> {
 class _MenuItemTile extends StatelessWidget {
   final _MenuItem item;
   final bool recommended;
-  const _MenuItemTile({required this.item, required this.recommended});
+  final Set<String> myAllergies; // 소문자 정규화된 내 알레르기(강조용)
+  const _MenuItemTile({
+    required this.item,
+    required this.recommended,
+    required this.myAllergies,
+  });
+
+  /// 이 메뉴의 알레르기 재료가 내가 등록한 것과 겹치는지(양방향 부분일치로 관대하게).
+  bool _isMine(String allergen) {
+    final a = allergen.toLowerCase();
+    return myAllergies.any((m) => a.contains(m) || m.contains(a));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -386,8 +467,50 @@ class _MenuItemTile extends StatelessWidget {
                     style: TextStyle(
                         color: scheme.onSurfaceVariant, fontSize: 13)),
               ),
+            if (item.allergens.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    for (final a in item.allergens) _allergenTag(context, a),
+                  ],
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 알레르기 재료 한 칸 — 내가 등록한 것이면 빨갛게(경고 아이콘+굵게) 강조.
+  Widget _allergenTag(BuildContext context, String allergen) {
+    final scheme = Theme.of(context).colorScheme;
+    final mine = _isMine(allergen);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: mine ? scheme.errorContainer : scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+        border: mine ? Border.all(color: scheme.error, width: 1) : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (mine) ...[
+            Icon(Icons.warning_amber_rounded, size: 12, color: scheme.error),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            allergen,
+            style: TextStyle(
+              fontSize: 11,
+              color: mine ? scheme.onErrorContainer : scheme.onSurfaceVariant,
+              fontWeight: mine ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -402,6 +525,7 @@ class _MenuItem {
   final String translatedName;
   final int? price; // 현지 통화 가격(숫자만), 없으면 null
   final String description;
+  final List<String> allergens; // 함유 가능성 높은 알레르기 재료(한국어), 없으면 빈 리스트
 
   const _MenuItem({
     required this.itemId,
@@ -409,6 +533,7 @@ class _MenuItem {
     required this.translatedName,
     required this.price,
     required this.description,
+    required this.allergens,
   });
 
   factory _MenuItem.fromJson(Map<String, dynamic> j) => _MenuItem(
@@ -417,6 +542,10 @@ class _MenuItem {
         translatedName: (j['translated_name'] ?? '').toString(),
         price: (j['price'] as num?)?.toInt(),
         description: (j['description'] ?? '').toString(),
+        allergens: ((j['allergens'] as List?) ?? const [])
+            .map((e) => e.toString().trim())
+            .where((s) => s.isNotEmpty)
+            .toList(),
       );
 }
 
