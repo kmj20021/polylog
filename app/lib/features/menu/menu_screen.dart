@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/api/dio_client.dart';
+import '../../shared/google_lens.dart';
 
 /// 메뉴판 번역 화면 — 현재 여행(tripId)의 식당 메뉴판을 사진 한 장으로 읽어
 /// 한국어 번역 + 한 줄 설명 + AI 추천을 보여준다.
@@ -33,6 +34,7 @@ class _MenuScreenState extends State<MenuScreen> {
   List<_MenuItem> _items = [];
   Set<String> _recommended = {}; // 추천 item_id
   String? _message; // 서버가 "못 읽었어요" 등 안내를 줄 때
+  String? _unsupportedLanguage; // 비라틴 메뉴판 → 구글 렌즈 유도(감지된 언어명)
 
   @override
   void dispose() {
@@ -75,6 +77,21 @@ class _MenuScreenState extends State<MenuScreen> {
       if (!mounted) return;
 
       final data = res.data ?? const {};
+
+      // 비라틴 메뉴판: 서버가 분석 대신 'unsupported_language' 신호를 준다 → 구글 렌즈로 유도.
+      if ((data['type'] ?? '').toString() == 'unsupported_language') {
+        final lang = data['language']?.toString() ?? '';
+        setState(() {
+          _busy = false;
+          _analyzed = true;
+          _items = [];
+          _recommended = {};
+          _message = null;
+          _unsupportedLanguage = lang.isEmpty ? '이 언어' : lang;
+        });
+        return;
+      }
+
       final rawItems = (data['items'] as List?) ?? const [];
       final items = rawItems
           .whereType<Map>()
@@ -90,6 +107,7 @@ class _MenuScreenState extends State<MenuScreen> {
         _items = items;
         _recommended = rec;
         _message = data['message']?.toString();
+        _unsupportedLanguage = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -187,9 +205,10 @@ class _MenuScreenState extends State<MenuScreen> {
     );
   }
 
-  /// 본문 — 분석 전 인트로 / 결과 없음 안내 / 메뉴 목록.
+  /// 본문 — 분석 전 인트로 / 비라틴 안내 / 결과 없음 / 메뉴 목록.
   Widget _content() {
     if (!_analyzed) return _intro();
+    if (_unsupportedLanguage != null) return _unsupportedCard();
     if (_items.isEmpty) return _emptyResult();
 
     final recCount = _recommended.length;
@@ -246,6 +265,44 @@ class _MenuScreenState extends State<MenuScreen> {
         ),
       ),
     );
+  }
+
+  /// 비라틴 메뉴판 안내 — 앱 번역이 안 되므로 구글 렌즈로 유도.
+  Widget _unsupportedCard() {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.translate_outlined, size: 56, color: scheme.primary),
+            const SizedBox(height: 14),
+            Text("'${_unsupportedLanguage!}'는 앱에서 번역이 불가능해요.",
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('번역 품질이 가장 좋은 구글 렌즈로 검색해 보시겠어요?',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: _openLens,
+              icon: const Icon(Icons.search),
+              label: const Text('구글 렌즈로 검색'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openLens() async {
+    final ok = await openGoogleLens();
+    if (!ok && mounted) _snack('구글 렌즈(구글 앱)를 열지 못했어요.');
   }
 
   Widget _emptyResult() {

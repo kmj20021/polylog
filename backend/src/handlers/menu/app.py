@@ -12,6 +12,10 @@ POST /menu
              "price":900,"description":"<AI 한 줄 설명>"}, ...],
    "recommended":["m0","m2"]}            # 식이 제한 제외한 추천 item_id
 
+  ※ 메뉴판이 라틴 문자(영/스/프/독/이/포 등)가 아니면(한/일/중 등) 분석 대신 신호만 반환:
+    {"type":"unsupported_language","menu_id":..,"photo_s3_key":..,"language":"일본어"}
+    → 앱이 "'일본어'는 앱 번역이 불가능 — 구글 렌즈로 검색" 안내로 유도(비전 CJK 번역 품질 낮음).
+
 설계 요지(왜 이렇게 했나):
 - ⭐ OCR 을 **Amazon Textract 가 아니라 Bedrock(Claude Haiku) 비전**으로 한다. Textract 의
   DetectDocumentText 는 라틴 문자(EN/ES/FR/DE/IT/PT)만 읽고 **한글·일본어(CJK)를 못 읽어**
@@ -79,10 +83,21 @@ def lambda_handler(event, context):
     # 1) 원본 보관(실패해도 분석은 계속).
     photo_s3_key = _store_image(image_bytes, trip_id)
 
-    # 2) Bedrock 비전 한 콜로 사진에서 직접 항목 추출 + 번역 + 설명 + 추천.
-    items, recommended = _analyze_menu(image_bytes, dietary, language)
+    # 2) Bedrock 비전 한 콜: 먼저 메뉴판의 '주(主) 문자 체계'를 판별한다.
+    #    라틴 문자(영/스/프/독/이/포 등)면 항목 추출+번역+추천까지, 아니면 비라틴으로 표시만 한다.
+    script, detected_lang, items, recommended = _analyze_menu(image_bytes, dietary, language)
 
     menu_id = str(uuid.uuid4())
+
+    # 비라틴(한/일/중 등)은 비전 번역 품질이 낮아 앱에서 분석하지 않고,
+    # 프론트가 "구글 렌즈로 검색" 안내로 유도하도록 신호만 돌려준다(이력 저장도 생략).
+    if script == "non_latin":
+        return _resp(200, {
+            "type": "unsupported_language",
+            "menu_id": menu_id,
+            "photo_s3_key": photo_s3_key,
+            "language": detected_lang,
+        })
 
     if not items:
         return _resp(200, {
@@ -168,34 +183,46 @@ def _store_image(image_bytes, trip_id):
 
 
 def _analyze_menu(image_bytes, dietary, language):
-    """Bedrock(Claude Haiku 비전) 한 콜로 메뉴판 사진을 직접 읽어 항목+번역+설명+추천.
+    """Bedrock(Claude Haiku 비전) 한 콜로 메뉴판 사진을 읽어 '문자 체계 판별' + (라틴이면) 항목+번역+추천.
 
-    반환: (items list[dict], recommended list[str])
+    반환: (script, detected_lang, items, recommended)
+      script: "latin" | "non_latin"  (비라틴이면 items/recommended 는 빈 리스트)
+      detected_lang: 감지한 주 언어의 한국어 명칭(예: "일본어") — 비라틴 안내 문구에 사용
       items: [{item_id, original_name, translated_name, price(int|None), description}]
       recommended: 식이 제한을 피한 추천 item_id (최대 4개)
-    실패하면 ([], []) — 호출부가 안내 메시지를 반환.
+    실패하면 ("latin", "", [], []) — 호출부가 '못 읽었어요' 안내 메시지를 반환.
 
-    Textract 대신 비전을 쓰는 이유는 모듈 상단 docstring 참조(CJK OCR 불가 → 한글/일본어 메뉴 실패).
+    왜 문자 체계로 가르나: 비전(Haiku)이 비라틴(한/일/중) 메뉴는 번역 품질이 떨어져, 라틴 문자
+    메뉴만 앱이 분석하고 비라틴은 '구글 렌즈로 검색' 안내로 유도한다(사용자 결정, 2026-06-07).
     """
     lang_label = {"ko": "한국어", "en": "영어", "ja": "일본어"}.get(language, language or "한국어")
     diet = ", ".join(dietary) if dietary else "없음"
     prompt = (
-        "너는 해외 식당에서 한국인 여행자를 돕는 메뉴 도우미다.\n"
-        "첨부한 메뉴판 사진을 읽어 각 메뉴 항목을 추출하라.\n"
-        f"- 각 항목의 원문 이름(original), {lang_label} 번역(translated), 무슨 음식인지 한 줄 "
+        "너는 해외 식당에서 한국인 여행자를 돕는 메뉴 도우미다. 첨부한 메뉴판 사진을 읽어라.\n"
+        "1) 먼저 메뉴판의 '주(主) 문자 체계'를 판별한다.\n"
+        "   - 라틴 문자 계열(영어·스페인어·프랑스어·독일어·이탈리아어·포르투갈어 등)이 '아니면'\n"
+        "     (예: 한국어·일본어·중국어·태국어·아랍어·러시아어 등) 항목을 만들지 말고 정확히 이 JSON만 출력:\n"
+        '     {"script":"non_latin","language":"<메뉴판 주 언어의 한국어 명칭, 예: 일본어>"}\n'
+        "2) 라틴 문자 계열이면 각 메뉴 항목을 추출한다.\n"
+        f"   - 각 항목의 원문 이름(original), {lang_label} 번역(translated), 무슨 음식인지 한 줄 "
         "설명(description), 가격(price: 숫자만, 없으면 null)을 낸다.\n"
-        "- 카테고리 제목 줄, 가격·숫자만 있는 줄은 항목에서 제외한다.\n"
-        "- 알레르기·식이 제한을 피해 추천 항목의 0-기반 인덱스를 최대 4개 고른다.\n"
-        f"  식이 제한(반드시 제외): {diet}\n\n"
-        "JSON 만 출력(설명·코드펜스 금지):\n"
-        '{"items":[{"original":"원문","translated":"번역명","price":900,"description":"한 줄 설명"}],'
-        '"recommended":[추천 항목의 0-기반 인덱스 최대 4개]}'
+        "   - 카테고리 제목 줄, 가격·숫자만 있는 줄은 항목에서 제외한다.\n"
+        "   - 알레르기·식이 제한을 피해 추천 항목의 0-기반 인덱스를 최대 4개 고른다.\n"
+        f"     식이 제한(반드시 제외): {diet}\n"
+        "   출력 형식(JSON 만, 설명·코드펜스 금지):\n"
+        '   {"script":"latin","items":[{"original":"원문","translated":"번역명","price":900,'
+        '"description":"한 줄 설명"}],"recommended":[추천 항목의 0-기반 인덱스 최대 4개]}'
     )
     try:
         text = _invoke_claude_vision(prompt, image_bytes, max_tokens=3000)
         data = _parse_json_object(text)
     except Exception:
-        return [], []
+        return "latin", "", [], []   # 실패 시 라틴 경로로 폴백 → 빈 목록 → 기존 안내 메시지
+
+    script = str(data.get("script") or "latin").strip().lower()
+    detected_lang = str(data.get("language") or "").strip()
+    if script == "non_latin":
+        return "non_latin", detected_lang, [], []
 
     items = []
     for it in (data.get("items") or []):
@@ -221,7 +248,7 @@ def _analyze_menu(image_bytes, dietary, language):
             continue
         if rid in valid_ids and rid not in recommended:
             recommended.append(rid)
-    return items, recommended[:4]
+    return "latin", detected_lang, items, recommended[:4]
 
 
 def _save_menu(trip_id, created_at, menu_id, photo_s3_key, items, recommended):

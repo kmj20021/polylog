@@ -96,6 +96,7 @@ def test_empty_menu_returns_message(monkeypatch):
 # ── 정상 흐름: 비전 항목+번역+추천 매핑 ──────────────────────
 def test_happy_path(monkeypatch):
     vision = lambda prompt, image_bytes, max_tokens=3000: json.dumps({
+        "script": "latin",
         "items": [
             {"original": "ラーメン", "translated": "라멘", "price": 900,
              "description": "일본식 라멘"},
@@ -135,6 +136,19 @@ def test_happy_path(monkeypatch):
     assert len(saved["items"]) == 3
 
 
+# ── 비라틴(한/일/중) → 분석 대신 구글 렌즈 유도 신호 ─────────
+def test_non_latin_returns_unsupported(monkeypatch):
+    vision = lambda *a, **k: json.dumps({"script": "non_latin", "language": "일본어"})
+    saved = _stub_aws(monkeypatch, vision=vision)
+    r = app.lambda_handler(_event({"image_base64": _PNG_1x1, "trip_id": "demo-trip"}), None)
+    body = json.loads(r["body"])
+    assert r["statusCode"] == 200
+    assert body["type"] == "unsupported_language"
+    assert body["language"] == "일본어"
+    assert "items" not in body          # 비라틴은 항목을 만들지 않음
+    assert saved == {}                  # 이력 저장도 생략
+
+
 # ── 비전 실패해도 안전(빈 목록 → 메시지) ─────────────────────
 def test_vision_failure_is_safe(monkeypatch):
     def boom(*a, **k):
@@ -152,6 +166,7 @@ def test_vision_failure_is_safe(monkeypatch):
 def test_analyze_menu_filters_invalid_recommended(monkeypatch):
     monkeypatch.setattr(app, "_invoke_claude_vision",
                         lambda prompt, image_bytes, max_tokens=3000: json.dumps({
+                            "script": "latin",
                             "items": [
                                 {"original": "Sushi", "translated": "스시", "price": 1000,
                                  "description": "초밥"},
@@ -160,7 +175,8 @@ def test_analyze_menu_filters_invalid_recommended(monkeypatch):
                             ],
                             "recommended": [1, 42],   # 42 는 범위 밖 → 제외
                         }))
-    items, recommended = app._analyze_menu(b"fake-image", [], "ko")
+    script, lang, items, recommended = app._analyze_menu(b"fake-image", [], "ko")
+    assert script == "latin"
     assert len(items) == 2
     assert items[0]["item_id"] == "m0"
     assert recommended == ["m1"]   # 42 제외
