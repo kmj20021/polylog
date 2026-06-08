@@ -437,6 +437,21 @@ PoC 프로젝트로 소셜 로그인(Google, Kakao 등)은 범위 밖이다. 이
 - Exit State #5·#6, bootstrap-plan §1.2·§4.1이 Google·Android로 정정됨(동기화 완료).
 - 보류 항목: Kakao OAuth, iOS 빌드.
 
+### 갱신 (2026-06-07) — 검증 방식: JWKS 로컬 → **Google tokeninfo 엔드포인트**로 단일화
+
+> **결정**: `fn-authorizer`의 토큰 검증을 RS256 로컬 JWKS 대신 Google **tokeninfo**(`GET https://oauth2.googleapis.com/tokeninfo?id_token=<JWT>`)에 위임한다. 구글이 서명·만료를 검증해 클레임을 반환하고, 함수는 `iss∈{accounts.google.com, https://accounts.google.com}`·`aud=GOOGLE_CLIENT_ID`만 추가 확인한다.
+
+**근거**
+- 로컬 JWKS RS256 검증은 `PyJWT`+`cryptography` 번들이 필요 → "배포 패키지 의존성 0"(SafeRole·urllib 패턴) 원칙과 CloudShell 패키징을 깨뜨린다.
+- tokeninfo 는 urllib GET 1회로 끝나 의존성 0·새 IAM 0(환율 API 패턴과 동일). PoC 트래픽(거의 0)에선 호출당 1회 외부 왕복 비용이 무의미. (대규모 트래픽 시 로컬 JWKS 로 후행 전환 가능 — 무상태라 교체 쉬움.)
+- 사용자 승인(2026-06-07).
+
+**영향**
+- `fn-authorizer` 구현 = `app.py`(tokeninfo 검증, TOKEN authorizer, context.user_id=sub). 단위테스트 8 passed.
+- env `GOOGLE_CLIENT_ID`(웹 클라이언트 ID=aud) 주입(deploy.sh 5-5). 미설정 시 aud 검증만 생략.
+- authorizer 부착은 `scripts/setup-authorizer.sh`(create/enable/disable). `/health`·OPTIONS 는 강제 제외(배포 헬스체크·CORS).
+- 클라이언트는 `google_sign_in`(serverClientId=GOOGLE_CLIENT_ID) → idToken → `Authorization: Bearer` 자동 첨부(DioClient 인터셉터).
+
 ---
 
 ## ADR-008: S3 + CloudFront 미디어 저장 전략

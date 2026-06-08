@@ -144,6 +144,12 @@ deploy_lambda "polylog-fn-receipt" \
   "$(get_s3_key FnReceipt)" \
   "app.lambda_handler" 30 256
 
+# 인증(Authorizer) — Google ID 토큰 검증(tokeninfo). 라우트 없음(인가 전용).
+# 함수만 배포하고, API Gateway authorizer 생성·메서드 부착은 setup-authorizer.sh(수동).
+deploy_lambda "polylog-fn-authorizer" \
+  "$(get_s3_key FnAuthorizer)" \
+  "app.lambda_handler" 10 128
+
 # ────────────────────────────────────────────
 # 5-1. fn-recommend 환경변수 주입 (Google Places 키)
 #   update-function-code 는 코드만 갱신하고 환경변수는 건드리지 않는다.
@@ -234,8 +240,31 @@ else
     warn "   (이 상태로 /receipt 호출 시 OCR·분류는 되나 total_krw=null + note 로 환산만 비활성.)"
 fi
 
-# 추후 추가 예시:
-# deploy_lambda "polylog-fn-authorizer" "$(get_s3_key FnAuthorizer)" "app.lambda_handler" 10 128
+# ────────────────────────────────────────────
+# 5-5. fn-authorizer 환경변수 주입 (Google 웹 클라이언트 ID)
+#   ID 토큰의 aud 가 이 값과 일치하는지 검증한다(다른 앱 토큰 차단).
+#   미설정이면 aud 검증만 생략(sub·iss·만료는 그대로 검증) → 동작은 하되 보안이 느슨.
+#   사용법(CloudShell): export GOOGLE_CLIENT_ID=... && bash scripts/deploy.sh
+#   클라이언트 ID 는 비밀이 아니지만, 환경별 교체를 위해 셸 환경에서 읽고 git 에 두지 않는다.
+# ────────────────────────────────────────────
+if [ -n "${GOOGLE_CLIENT_ID:-}" ]; then
+    log "fn-authorizer 환경변수 주입 (GOOGLE_CLIENT_ID)"
+    aws lambda update-function-configuration \
+      --function-name "polylog-fn-authorizer" \
+      --environment "Variables={GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID}" \
+      --region "$REGION" --output text --query 'LastModified' > /dev/null
+    aws lambda wait function-updated \
+      --function-name "polylog-fn-authorizer" --region "$REGION"
+    log "  ✅ 키 주입 완료"
+else
+    warn "GOOGLE_CLIENT_ID 미설정 → fn-authorizer 의 aud 검증 생략(sub·iss·만료만 검증)."
+    warn "   (보안 강화하려면 export GOOGLE_CLIENT_ID=<웹 클라이언트 ID> 후 다시 배포.)"
+fi
+
+# Authorizer 를 API 메서드에 붙이는 작업은 deploy.sh 가 아니라 scripts/setup-authorizer.sh:
+#   bash scripts/setup-authorizer.sh          # authorizer 생성만(아직 강제 안 함)
+#   bash scripts/setup-authorizer.sh enable   # 전 라우트(/health·OPTIONS 제외)에 강제
+#   bash scripts/setup-authorizer.sh disable  # 강제 해제(다시 NONE)
 
 # ────────────────────────────────────────────
 # 6. API Gateway 재배포 (스테이지 갱신)

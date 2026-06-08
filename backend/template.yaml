@@ -162,6 +162,22 @@ Resources:
             Path: /receipt
             Method: post
 
+  # 인증 — API Gateway Lambda Authorizer(ADR-007: Google ID 토큰 검증).
+  # ⚠️ 라우트(Api 이벤트)가 없는 '인가 전용' 함수다. authorizer 를 만들고 메서드에 붙이는
+  #    작업은 deploy.sh 로 안 되므로 scripts/setup-authorizer.sh(수동)로 처리한다.
+  # tokeninfo 로 검증해 외부 의존성 0. env GOOGLE_CLIENT_ID(=웹 클라이언트 ID, aud 검증)는
+  # deploy.sh 5-5 블록에서 주입한다(없으면 aud 검증만 생략).
+  FnAuthorizer:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: polylog-fn-authorizer
+      # ★ ADR-012: 공용 실행 역할 재사용(iam:CreateRole 차단).
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
+      CodeUri: src/handlers/authorizer/
+      Handler: app.lambda_handler
+      Tags:
+        group: polylog
+
 # 배포 완료 수 영수증/안내판
 Outputs: # 외부에서 접근 가능한 진짜 URL과 설명을 제공하는 출력값
   ApiUrl:

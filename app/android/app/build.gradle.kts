@@ -23,7 +23,8 @@ android {
 
     defaultConfig {
         applicationId = "com.shingu.polylog"
-        minSdk = flutter.minSdkVersion
+        // google_sign_in 7.x(Credential Manager)는 minSdk 24 이상을 요구한다.
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
