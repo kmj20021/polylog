@@ -139,6 +139,19 @@ Resources:
             Path: /menu
             Method: post
 
+  # API Gateway Lambda Authorizer — Google ID 토큰 검증(Phase 4).
+  # Events 없음 — API Gateway 경로가 아니라 Authorizer 로 연결(setup-authorizer.sh 로 수행).
+  # 활성화 전(auth=NONE)엔 기존 기능에 영향 없음.
+  FnAuthorizer:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: polylog-fn-authorizer
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/SafeRole-polylog
+      CodeUri: src/handlers/authorizer/
+      Handler: app.lambda_handler
+      Tags:
+        group: polylog
+
   # 영수증 분석(서브2) — 사진을 Bedrock(Claude Haiku) 비전으로 직접 읽어 통화/품목/카테고리 인식
   # + 원화 환산(외부 환율 API). fn-menu 와 같은 파이프라인이라 메모리 256MB, Timeout 30s.
   # ⚠️ Textract 미사용(한글·일본어 CJK OCR 불가 → 비전으로 통일). 새 IAM 불필요.

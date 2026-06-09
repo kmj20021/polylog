@@ -3,8 +3,8 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    // ※ Google 로그인(메인 #3) 붙일 때 아래 + google-services.json 추가:
-    //    id("com.google.gms.google-services")
+    // Google 로그인은 google_sign_in 패키지만으로 동작(Firebase·google-services.json 불필요)
+    // id("com.google.gms.google-services")
 }
 
 android {
