@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/api/dio_client.dart';
+import '../../core/theme/app_colors.dart';
 
 /// 영수증(지출 가계부) 화면 — 현재 여행(tripId)의 지출을 사진으로 기록하고,
 /// 날짜별로 보여주며, 사용자가 직접 보정하고, 여행 전체 지출을 대시보드로 본다.
@@ -45,10 +46,19 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   bool _busy = false; // 분석/저장 등 작업 중(중복 방지 + 오버레이)
   List<_Receipt> _receipts = [];
 
+  final TextEditingController _search = TextEditingController();
+  String _query = ''; // 가게·품목 검색어(목록만 필터; 대시보드는 전체 기준)
+
   @override
   void initState() {
     super.initState();
     _loadList();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
   }
 
   // ── 서버 호출 ───────────────────────────────────────────────
@@ -204,31 +214,127 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
   // ── 빌드 ────────────────────────────────────────────────────
+  /// 레퍼런스(docs/ref-image/ui2.jpg): 블루 배경 + 상단 바(뒤로 / 검색 / 로고),
+  /// 큰 흰 라운드 패널(대시보드+목록), 하단 흰 박스('영수증 찍기').
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.tripName} · 지출')),
-      body: Stack(
-        children: [
-          if (_loading)
-            const Center(child: CircularProgressIndicator())
-          else if (_receipts.isEmpty)
-            _intro()
-          else
-            _ledger(),
-          if (_busy)
-            Container(
-              color: Colors.black26,
-              child: const Center(child: CircularProgressIndicator()),
+      backgroundColor: AppColors.blue,
+      body: SafeArea(
+        bottom: false,
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                _topBar(),
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: const BoxDecoration(
+                      color: AppColors.base,
+                      borderRadius:
+                          BorderRadius.vertical(top: Radius.circular(28)),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _content(),
+                  ),
+                ),
+                _bottomBar(),
+              ],
             ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _busy ? null : _showSourceSheet,
-        icon: const Icon(Icons.add_a_photo),
-        label: const Text('영수증 찍기'),
+            if (_busy)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black26,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+          ],
+        ),
       ),
     );
+  }
+
+  /// 블루 상단 바 — 뒤로가기 / 가게·품목 검색 / 로고 아바타.
+  Widget _topBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 12, 12),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: '뒤로',
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back_ios_new,
+                color: AppColors.base, size: 20),
+          ),
+          Expanded(
+            child: SizedBox(
+              height: 44,
+              child: TextField(
+                controller: _search,
+                onChanged: (v) => setState(() => _query = v.trim()),
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: '가게·품목 검색',
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  fillColor: AppColors.base,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.base, width: 2),
+            ),
+            child: const CircleAvatar(
+              radius: 18,
+              backgroundColor: AppColors.base,
+              backgroundImage: AssetImage('assets/logo/polylog_logo.png'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 하단 흰 박스 — '영수증 찍기' 액션(기존 FAB 대체).
+  Widget _bottomBar() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: EdgeInsets.fromLTRB(
+          16, 14, 16, 14 + MediaQuery.of(context).padding.bottom),
+      decoration: const BoxDecoration(
+        color: AppColors.base,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: _busy ? null : _showSourceSheet,
+          icon: const Icon(Icons.add_a_photo),
+          label: const Text('영수증 찍기'),
+        ),
+      ),
+    );
+  }
+
+  /// 흰 패널 본문 — 로딩 / 빈 안내 / 가계부.
+  Widget _content() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_receipts.isEmpty) return _intro();
+    return _ledger();
   }
 
   Widget _intro() {
@@ -259,28 +365,46 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     );
   }
 
-  /// 대시보드 + 날짜별 목록.
+  /// 대시보드(전체 기준) + 날짜별 목록(검색어로 필터).
   Widget _ledger() {
-    final groups = _groupByDate(_receipts);
+    final q = _query.toLowerCase();
+    final filtered = q.isEmpty
+        ? _receipts
+        : _receipts
+            .where((r) =>
+                r.merchant.toLowerCase().contains(q) ||
+                r.items.any((it) => it.nameKo.toLowerCase().contains(q)))
+            .toList();
+    final groups = _groupByDate(filtered);
     return RefreshIndicator(
       onRefresh: _loadList,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
           _Dashboard(receipts: _receipts),
           const SizedBox(height: 8),
-          for (final entry in groups) ...[
+          if (groups.isEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 16, 4, 6),
-              child: Text(entry.key.isEmpty ? '(날짜 미상)' : entry.key,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-            ),
-            for (final r in entry.value)
-              _ReceiptTile(receipt: r, onTap: () => _openEditSheet(r)),
-          ],
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text('"$_query" 검색 결과가 없어요',
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              ),
+            )
+          else
+            for (final entry in groups) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 16, 4, 6),
+                child: Text(entry.key.isEmpty ? '(날짜 미상)' : entry.key,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+              ),
+              for (final r in entry.value)
+                _ReceiptTile(receipt: r, onTap: () => _openEditSheet(r)),
+            ],
         ],
       ),
     );

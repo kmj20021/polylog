@@ -15,12 +15,16 @@ import '../../core/location/geolocator.dart';
 class SchedulePlanner extends StatefulWidget {
   final String tripId;
 
+  /// 담는 계획을 붙일 여행 날짜 'YYYY-MM-DD'(빈 값이면 미지정).
+  final String day;
+
   /// 일정이 바뀌었을 때(편집 즉시반영/담기 확정) 호스트가 타임라인을 새로고침하도록.
   final Future<void> Function() onScheduleChanged;
 
   const SchedulePlanner({
     super.key,
     required this.tripId,
+    this.day = '',
     required this.onScheduleChanged,
   });
 
@@ -148,6 +152,7 @@ class _SchedulePlannerState extends State<SchedulePlanner> {
           'trip_id': widget.tripId,
           'place_id': p.placeId,
           'place_name': p.placeName,
+          if (widget.day.isNotEmpty) 'day': widget.day,
           if (p.timeLabel.isNotEmpty) 'time_label': p.timeLabel,
           if (p.lat != null) 'latitude': p.lat,
           if (p.lng != null) 'longitude': p.lng,

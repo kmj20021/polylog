@@ -30,6 +30,41 @@ class Trip {
     return '$s - $e';
   }
 
+  /// 여행 기간의 '날짜 목록'(시작일~종료일, 양끝 포함) — 메인 홈의 날짜 스트립용.
+  /// 종료일이 없으면 당일치기로 보고 시작일 하루만. 시작일이 없으면 빈 리스트
+  /// (→ 홈은 날짜 스트립을 숨기고 전체 계획을 보여준다).
+  List<DateTime> days() {
+    final start = DateTime.tryParse(startDate);
+    if (start == null) return const [];
+    final end = DateTime.tryParse(endDate) ?? start;
+    final s = DateTime(start.year, start.month, start.day);
+    final e = DateTime(end.year, end.month, end.day);
+    if (e.isBefore(s)) return [s]; // 잘못된 기간 방어(종료<시작) — 시작일만.
+    final out = <DateTime>[];
+    for (var d = s; !d.isAfter(e); d = d.add(const Duration(days: 1))) {
+      out.add(d);
+    }
+    return out;
+  }
+
+  /// 날짜 → 'YYYY-MM-DD'(계획의 day 매칭·날짜 스트립 공용).
+  static String ymd(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  /// 새 계획을 담거나 스트립을 처음 열 때의 '기본 날짜' — 오늘이 기간 안이면 오늘,
+  /// 아니면 첫날. 기간 미정이면 ''(날짜 없이 동작).
+  String defaultDayYmd() {
+    final ds = days();
+    if (ds.isEmpty) return '';
+    final today = ymd(DateTime.now());
+    for (final d in ds) {
+      if (ymd(d) == today) return today;
+    }
+    return ymd(ds.first);
+  }
+
   /// '여행 중'인가 — 오늘 날짜가 [시작일, 종료일] 안에 들면 true.
   /// 종료일이 없으면 당일치기로 보고 시작일과 같은 날로 취급한다. 시작일이 없으면 false.
   bool isOngoing([DateTime? now]) {

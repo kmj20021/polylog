@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/dio_client.dart';
+import '../../core/theme/app_colors.dart';
+import '../../shared/bookmark_panel.dart';
 import '../../shared/maps_link.dart';
 import 'schedule_planner.dart';
 
@@ -18,8 +20,11 @@ class ScheduleScreen extends StatefulWidget {
   final String tripId;
   final String tripName;
 
+  /// 새로 담는 계획을 붙일 날짜 'YYYY-MM-DD'(메인 홈에서 보고 있던 날). 빈 값이면 미지정.
+  final String day;
+
   const ScheduleScreen(
-      {super.key, required this.tripId, required this.tripName});
+      {super.key, required this.tripId, required this.tripName, this.day = ''});
 
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
@@ -144,35 +149,128 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     return ok ?? false;
   }
 
+  /// 레퍼런스(docs/ref-image/chat.jpg) 구조:
+  ///   - 블루 배경 + 상단 바(뒤로가기 / 로고 아바타).
+  ///   - 상단 '끌어내리는' 일정 패널 — 평소엔 접혀 마지막 일정 1개만, 손잡이를
+  ///     아래로 슬라이드(또는 탭)하면 펼쳐져 전체 일정을 본다(_SchedulePanel).
+  ///   - 그 아래 큰 흰 패널 = AI 대화 플래너(+ 하단 입력창).
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.tripName),
-        actions: [
-          IconButton(
-            tooltip: '새로고침',
-            onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+      backgroundColor: AppColors.blue,
+      body: SafeArea(
+        bottom: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const topBarH = 56.0;
+            const collapsedH = 112.0;
+            final expandedH =
+                ((constraints.maxHeight - topBarH) * 0.72).clamp(220.0, 600.0);
+            return Stack(
+              children: [
+                // 바닥: 상단 바 + (접힌 일정 패널 자리) + 큰 흰 플래너 패널.
+                Column(
+                  children: [
+                    BookmarkTopBar(
+                      title: widget.tripName,
+                      onBack: () => Navigator.of(context).maybePop(),
+                    ),
+                    const SizedBox(height: collapsedH + 16), // 접힌 패널 + 여백
+                    Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: const BoxDecoration(
+                          color: AppColors.base,
+                          borderRadius:
+                              BorderRadius.vertical(top: Radius.circular(24)),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: SchedulePlanner(
+                          tripId: widget.tripId,
+                          day: widget.day, // 담을 때 이 날짜로 저장
+                          onScheduleChanged: _load, // 담기/편집 후 타임라인 새로고침
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                // 상단 일정 패널(접힘↔펼침) — 펼치면 플래너 위로 내려와 덮는다.
+                Positioned(
+                  top: topBarH,
+                  left: 16,
+                  right: 16,
+                  child: BookmarkPanel(
+                    collapsedHeight: collapsedH,
+                    expandedHeight: expandedH,
+                    collapsedChild: _collapsedView(),
+                    expandedChild: RefreshIndicator(
+                      onRefresh: _load,
+                      child: _buildBody(),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
-      // 위: 담은 일정 타임라인(당겨서 새로고침) / 아래: AI와 대화로 일정 짜기.
-      body: Column(
-        children: [
-          Expanded(
-            flex: 2,
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _buildBody(),
-            ),
+    );
+  }
+
+  /// 접힘 상태에 보이는 '마지막 일정 1개' 요약(없으면 안내, 로딩 중이면 스피너).
+  Widget _collapsedView() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    if (_loading && _items.isEmpty) {
+      return const Center(
+        child: SizedBox(
+            width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (_items.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            _error != null ? '일정을 불러오지 못했어요' : '아직 담은 일정이 없어요',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: scheme.onSurfaceVariant),
           ),
-          const Divider(height: 1),
+        ),
+      );
+    }
+    final last = _items.last;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: scheme.primary,
+            child: Text('${_items.length}',
+                style: TextStyle(
+                    color: scheme.onPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14)),
+          ),
+          const SizedBox(width: 12),
           Expanded(
-            flex: 3,
-            child: SchedulePlanner(
-              tripId: widget.tripId,
-              onScheduleChanged: _load, // 편집 즉시반영/담기 후 타임라인 새로고침
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(last.placeName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                Text('마지막 일정 · 총 ${_items.length}개 — 아래로 끌어 전체 보기',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant)),
+              ],
             ),
           ),
         ],

@@ -285,6 +285,22 @@ def test_post_stores_time_label(monkeypatch):
     assert table.put_items[0]["time_label"] == "14:00"
 
 
+def test_post_stores_day(monkeypatch):
+    table = _FakeTable()
+    _install_table(monkeypatch, table)
+
+    app.lambda_handler(_post({"place_name": "경복궁", "day": "2026-02-07"}), None)
+    assert table.put_items[0]["day"] == "2026-02-07"
+
+
+def test_post_omits_empty_day(monkeypatch):
+    table = _FakeTable()
+    _install_table(monkeypatch, table)
+
+    app.lambda_handler(_post({"place_name": "경복궁"}), None)
+    assert "day" not in table.put_items[0]
+
+
 def test_post_defaults_trip_id(monkeypatch):
     table = _FakeTable()
     _install_table(monkeypatch, table)
@@ -366,6 +382,61 @@ def test_reorder_missing_order_400(monkeypatch):
 
     resp = app.lambda_handler(_reorder({"trip_id": "demo-trip"}), None)
     assert resp["statusCode"] == 400
+    assert table.put_items == []
+
+
+# ─────────────────────────── 날짜 이동(action="set_day") ───────────────────────────
+def _set_day(body):
+    return {"httpMethod": "POST", "body": json.dumps({**body, "action": "set_day"})}
+
+
+def test_set_day_updates_day(monkeypatch):
+    table = _FakeTable(query_items=[
+        {"trip_id": "demo-trip", "start_time": "t1", "place_name": "A"},
+    ])
+    _install_table(monkeypatch, table)
+
+    resp = app.lambda_handler(_set_day({
+        "trip_id": "demo-trip", "start_time": "t1", "day": "2026-02-08"}), None)
+
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["type"] == "day_set"
+    assert body["day"] == "2026-02-08"
+    # 같은 키로 day 만 채워 덮어쓰기(SK 불변)
+    stored = table.put_items[-1]
+    assert stored["start_time"] == "t1"
+    assert stored["day"] == "2026-02-08"
+
+
+def test_set_day_empty_clears_day(monkeypatch):
+    table = _FakeTable(query_items=[
+        {"trip_id": "demo-trip", "start_time": "t1", "place_name": "A",
+         "day": "2026-02-08"},
+    ])
+    _install_table(monkeypatch, table)
+
+    app.lambda_handler(_set_day({"trip_id": "demo-trip", "start_time": "t1"}), None)
+    # 빈 day → 미지정으로 되돌림(속성 제거)
+    assert "day" not in table.put_items[-1]
+
+
+def test_set_day_missing_start_time_400(monkeypatch):
+    table = _FakeTable(query_items=[])
+    _install_table(monkeypatch, table)
+
+    resp = app.lambda_handler(_set_day({"trip_id": "demo-trip"}), None)
+    assert resp["statusCode"] == 400
+    assert table.put_items == []
+
+
+def test_set_day_not_found_404(monkeypatch):
+    table = _FakeTable(query_items=[])
+    _install_table(monkeypatch, table)
+
+    resp = app.lambda_handler(_set_day({
+        "trip_id": "demo-trip", "start_time": "ghost", "day": "2026-02-08"}), None)
+    assert resp["statusCode"] == 404
     assert table.put_items == []
 
 

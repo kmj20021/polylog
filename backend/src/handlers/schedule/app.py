@@ -8,6 +8,7 @@
 라우팅(HTTP 메서드 + action):
   POST /schedule {action:"chat", ...}     → 대화형 플래너          (_handle_chat)
   POST /schedule {action:"reorder", ...}  → 일정 순서 재정렬       (_handle_reorder)
+  POST /schedule {action:"set_day", ...}  → 계획을 다른 날로 이동   (_handle_set_day)
   POST /schedule {action:"create_trip"}   → 새 여행 만들기         (_handle_create_trip)
   POST /schedule {action:"list_trips"}    → 여행 목록             (_handle_list_trips)
   POST /schedule {action:"update_trip"}   → 여행 이름·기간 수정    (_handle_update_trip)
@@ -117,6 +118,8 @@ def lambda_handler(event, context):
             return _handle_chat(body)
         if action == "reorder":
             return _handle_reorder(body)
+        if action == "set_day":
+            return _handle_set_day(body)
         # 여행(trip) 관리 — 새 API 경로 대신 같은 POST 라우트에 action 분기(배포 비용 절감).
         if action == "create_trip":
             return _handle_create_trip(body)
@@ -148,6 +151,7 @@ def _handle_post(body):
         "place_name": place_name,
         "place_id": _clean(body.get("place_id")),
         "address": _clean(body.get("address")),
+        "day": _clean(body.get("day")),                  # 어느 여행 날짜의 계획인지 'YYYY-MM-DD'(선택)
         "time_label": _clean(body.get("time_label")),   # AI 제안 방문 시각대(예: 14:00)
         "source": "ai_recommended",
         "created_at": now,
@@ -211,6 +215,36 @@ def _handle_reorder(body):
         "count": len(new_items),
         "items": [_json_safe(it) for it in new_items],
     })
+
+
+# ─────────────────────────── 날짜 이동(POST action="set_day") ───────────────────────────
+def _handle_set_day(body):
+    """계획 한 개를 다른 여행 날짜로 옮긴다 — 항목의 day 속성만 갱신(순서·키 불변).
+
+    메인 '내 여행' 화면이 계획을 날짜별로 조회하므로, 어느 날 계획인지를 항목에 저장한다.
+    PK(trip_id)+SK(start_time)로 항목을 특정해 day 만 바꾼다(빈 day 면 미지정으로 되돌림).
+
+    입력 : {action:"set_day", trip_id, start_time, day:"YYYY-MM-DD"}
+    출력 : {type:"day_set", trip_id, start_time, day}
+    """
+    trip_id = _clean(body.get("trip_id")) or _DEFAULT_TRIP_ID
+    start_time = _clean(body.get("start_time"))
+    if not start_time:
+        return _resp(400, {"error": "start_time(대상 계획의 시각 키)은 필수입니다."})
+    day = _clean(body.get("day"))
+
+    key = {"trip_id": trip_id, "start_time": start_time}
+    item = _table().get_item(Key=key).get("Item")
+    if not item:
+        return _resp(404, {"error": "해당 계획을 찾을 수 없습니다."})
+
+    # day 만 바꾼다(SK 불변이라 안전하게 같은 키로 덮어쓰기). 빈 day 면 미지정으로 되돌림.
+    item["day"] = day
+    item["updated_at"] = _now_iso()
+    item = {k: v for k, v in item.items() if v not in ("", None)}
+    _table().put_item(Item=item)
+    return _resp(200, {"type": "day_set", "trip_id": trip_id,
+                       "start_time": start_time, "day": day})
 
 
 # ─────────────────────────── 조회(GET) ───────────────────────────

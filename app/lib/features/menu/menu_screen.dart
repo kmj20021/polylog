@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_colors.dart';
+import '../../shared/bookmark_panel.dart';
 import '../../shared/google_lens.dart';
 
 /// 메뉴판 화면 — 구글 렌즈로 안내만 한다(앱 자체 분석 폐지).
@@ -18,37 +20,87 @@ class MenuScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: Text('$tripName · 메뉴판')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.translate_outlined, size: 64, color: scheme.primary),
-              const SizedBox(height: 16),
-              Text('메뉴판은 구글 렌즈로 번역해요',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              Text(
-                '구글 렌즈를 열고 카메라로 메뉴판을 비추면\n'
-                '모든 언어를 실시간으로 한국어로 번역해 줘요.\n'
-                '사진 글자 인식·번역 품질이 가장 좋아요.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: scheme.onSurfaceVariant),
+      backgroundColor: AppColors.blue,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            BookmarkTopBar(
+              title: tripName,
+              onBack: () => Navigator.of(context).maybePop(),
+            ),
+            // 큰 흰 라운드 패널 — 안내 + 구글 렌즈 열기(다른 기능 화면과 같은 디자인).
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: const BoxDecoration(
+                  color: AppColors.base,
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Center(
+                  // 포인트 연두 동그라미로 안내 전체를 감싼다(패널 폭에 맞춘 큰 원).
+                  child: LayoutBuilder(
+                    builder: (context, c) {
+                      final d = c.biggest.shortestSide;
+                      const padFrac = 0.09;
+                      final inner = d * (1 - padFrac * 2); // 원 안 가용 폭
+                      return Container(
+                        width: d,
+                        height: d,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.green,
+                        ),
+                        padding: EdgeInsets.all(d * padFrac),
+                        child: Center(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.translate_outlined,
+                                    size: 56, color: scheme.primary),
+                                const SizedBox(height: 14),
+                                // 제목은 한 줄로 — 폭에 맞춰 자동 축소.
+                                SizedBox(
+                                  width: inner,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text('메뉴판은 구글 렌즈로 번역하기',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleLarge
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  "앱을 열고 카메라로 메뉴판을 찍으면 모든 언어를 실시간으로 "
+                                  "한국어 번역이 가능해요!\n궁금한 글자를 눌러 '번역'을 눌러주세요.",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      color: scheme.onSurface, height: 1.4),
+                                ),
+                                const SizedBox(height: 20),
+                                FilledButton.icon(
+                                  onPressed: () => _openLens(context),
+                                  icon: const Icon(Icons.search),
+                                  label: const Text('구글 렌즈 열기'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: () => _openLens(context),
-                icon: const Icon(Icons.search),
-                label: const Text('구글 렌즈 열기'),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

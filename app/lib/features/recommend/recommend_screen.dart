@@ -1,23 +1,28 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/dio_client.dart';
+import '../../core/theme/app_colors.dart';
+import '../../shared/bookmark_panel.dart';
 import '../../shared/place_chat.dart';
 
 /// 위치 기반 AI 장소 추천 — 대화형 화면 (메인 기능 #1).
 ///
-/// 화면 구성:
-///   - 상단: 담은 일정 미리보기(가로 칩 타임라인). '담기'를 누를 때마다 칩이 늘어난다.
-///   - 본문: 공용 [PlaceChat] 위젯(대화 입력 → /recommend → 장소 카드).
+/// 화면 구성(레퍼런스 chat.jpg '책갈피' 레이아웃):
+///   - 상단 책갈피 패널([BookmarkPanel]): 내 여행 일정(접힘=마지막 1곳, 끌어내리면 전체·순서변경).
+///   - 큰 흰 패널: 공용 [PlaceChat] 위젯(대화 입력 → /recommend → 장소 카드).
 ///
 /// 대화·GPS·카드 렌더링은 모두 [PlaceChat] 가 담당하고, 이 화면은 '담기 → 일정 저장 +
-/// 상단 미리보기 갱신'만 책임진다. (여행 탭의 일정 화면도 같은 [PlaceChat] 를 재사용한다.)
+/// 상단 일정 갱신'만 책임진다. (여행 탭의 일정 화면도 같은 책갈피 패널을 재사용한다.)
 class RecommendScreen extends StatefulWidget {
   /// 어느 여행에 담을지 — '내 여행' 목록에서 선택한 여행이 주입된다.
   final String tripId;
   final String tripName;
 
+  /// 담는 장소를 붙일 여행 날짜 'YYYY-MM-DD'(메인 홈에서 보고 있던 날). 빈 값이면 미지정.
+  final String day;
+
   const RecommendScreen(
-      {super.key, required this.tripId, required this.tripName});
+      {super.key, required this.tripId, required this.tripName, this.day = ''});
 
   @override
   State<RecommendScreen> createState() => _RecommendScreenState();
@@ -64,6 +69,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
           'trip_id': widget.tripId,
           'place_id': p.placeId,
           'place_name': p.name,
+          if (widget.day.isNotEmpty) 'day': widget.day,
           if (p.lat != null) 'latitude': p.lat,
           if (p.lng != null) 'longitude': p.lng,
           if (p.address.isNotEmpty) 'address': p.address,
@@ -115,15 +121,210 @@ class _RecommendScreenState extends State<RecommendScreen> {
     }
   }
 
+  /// 레퍼런스(docs/ref-image/chat.jpg) '책갈피' 레이아웃:
+  ///   - 블루 배경 + 상단 바(뒤로 / 로고).
+  ///   - 상단 책갈피 패널 = 내 여행 일정(접힘=마지막 1곳, 끌어내리면 전체·순서변경).
+  ///   - 큰 흰 패널 = 위치 기반 추천 대화(PlaceChat) + 하단 입력창.
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.tripName)),
-      body: Column(
+      backgroundColor: AppColors.blue,
+      body: SafeArea(
+        bottom: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const topBarH = 56.0;
+            const collapsedH = 112.0;
+            final expandedH =
+                ((constraints.maxHeight - topBarH) * 0.72).clamp(220.0, 600.0);
+            return Stack(
+              children: [
+                Column(
+                  children: [
+                    BookmarkTopBar(
+                      title: widget.tripName,
+                      onBack: () => Navigator.of(context).maybePop(),
+                    ),
+                    const SizedBox(height: collapsedH + 16), // 접힌 패널 + 여백
+                    Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: const BoxDecoration(
+                          color: AppColors.base,
+                          borderRadius:
+                              BorderRadius.vertical(top: Radius.circular(24)),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: PlaceChat(
+                          onAdd: _addToSchedule,
+                          greeting: '주변에 무엇이 있는지 찾아드려요!\n'
+                              '예: "근처 괜찮은 레스토랑 있어?", "조용한 카페 추천해줘"',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                // 상단 책갈피 패널 — 내 여행 일정(펼치면 대화 위로 내려와 덮는다).
+                Positioned(
+                  top: topBarH,
+                  left: 16,
+                  right: 16,
+                  child: BookmarkPanel(
+                    collapsedHeight: collapsedH,
+                    expandedHeight: expandedH,
+                    collapsedChild: _collapsedItinerary(),
+                    expandedChild: _expandedItinerary(),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// 접힘 상태 — 마지막으로 담은 1곳 요약(없으면 안내).
+  Widget _collapsedItinerary() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    if (_timeline.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text('아직 담은 일정이 없어요 — 아래에서 찾아 담아보세요',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurfaceVariant)),
+        ),
+      );
+    }
+    final last = _timeline.last;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Row(
         children: [
-          _TimelineBar(items: _timeline, onReorder: _reorder),
-          Expanded(child: PlaceChat(onAdd: _addToSchedule)),
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: scheme.primary,
+            child: Text('${_timeline.length}',
+                style: TextStyle(
+                    color: scheme.onPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(last.placeName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                Text('내 여행 일정 · 총 ${_timeline.length}곳 — 아래로 끌어 전체 보기',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// 펼침 상태 — 담은 일정 전체(세로 목록, 꾹 눌러 순서 변경).
+  Widget _expandedItinerary() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    if (_timeline.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('추천 카드의 "담기"를 누르면 여기에 일정이 쌓여요.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurfaceVariant)),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+          child: Row(
+            children: [
+              Icon(Icons.route, size: 16, color: scheme.primary),
+              const SizedBox(width: 6),
+              Text('내 여행 일정',
+                  style: theme.textTheme.labelLarge
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(width: 6),
+              Text('(${_timeline.length})',
+                  style: theme.textTheme.labelMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant)),
+              if (_timeline.length > 1) ...[
+                const Spacer(),
+                Text('꾹 눌러 순서 변경',
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: scheme.onSurfaceVariant)),
+              ],
+            ],
+          ),
+        ),
+        Expanded(
+          child: ReorderableListView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            itemCount: _timeline.length,
+            onReorderItem: _reorder,
+            proxyDecorator: (child, index, animation) =>
+                Material(color: Colors.transparent, child: child),
+            itemBuilder: (context, i) => _itineraryTile(i),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _itineraryTile(int i) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final item = _timeline[i];
+    return Padding(
+      key: ValueKey(item.startTime),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 12,
+              backgroundColor: scheme.primary,
+              child: Text('${i + 1}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: scheme.onPrimary)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(item.placeName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w600)),
+            ),
+            Icon(Icons.drag_handle, size: 20, color: scheme.onSurfaceVariant),
+          ],
+        ),
       ),
     );
   }
@@ -147,128 +348,3 @@ class _ScheduleItem {
   }
 }
 
-/// 상단 '여행 일정' 타임라인 — 담은 장소가 1 → 2 → 3 순서로 가로로 쌓인다.
-///
-/// 칩을 꾹 눌러(롱프레스) 좌우로 드래그하면 방문 순서를 바꿀 수 있다.
-/// 추천에서 '담기'는 일단 맨 뒤에 붙으므로, 원하는 자리로 끌어다 '중간에' 넣는다.
-class _TimelineBar extends StatelessWidget {
-  final List<_ScheduleItem> items;
-
-  /// 드래그로 순서가 바뀌면 (이전 위치, 새 위치)를 부모에 알린다.
-  final void Function(int oldIndex, int newIndex) onReorder;
-
-  const _TimelineBar({required this.items, required this.onReorder});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.surfaceContainerLow,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.route, size: 16, color: scheme.primary),
-              const SizedBox(width: 6),
-              Text('내 여행 일정',
-                  style: theme.textTheme.labelLarge
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(width: 6),
-              Text('(${items.length})',
-                  style: theme.textTheme.labelMedium
-                      ?.copyWith(color: scheme.onSurfaceVariant)),
-              if (items.length > 1) ...[
-                const Spacer(),
-                Icon(Icons.drag_indicator,
-                    size: 14, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 2),
-                Text('꾹 눌러 순서 변경',
-                    style: theme.textTheme.labelSmall
-                        ?.copyWith(color: scheme.onSurfaceVariant)),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 40,
-            child: items.isEmpty
-                ? Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '추천 카드의 "담기"를 누르면 여기에 일정이 쌓여요.',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                  )
-                : ReorderableListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    buildDefaultDragHandles: true, // 모바일: 롱프레스로 칩 전체를 잡아 드래그
-                    onReorderItem: onReorder,
-                    itemCount: items.length,
-                    // 드래그 중 떠 있는 칩 배경이 비치지 않도록 투명 처리.
-                    proxyDecorator: (child, index, animation) =>
-                        Material(color: Colors.transparent, child: child),
-                    itemBuilder: (context, i) => Padding(
-                      // ReorderableListView 는 각 항목에 고유 Key 가 필수.
-                      key: ValueKey(items[i].startTime),
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Center(
-                        child: _TimelineChip(
-                          index: i + 1,
-                          label: items[i].placeName,
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TimelineChip extends StatelessWidget {
-  final int index;
-  final String label;
-  const _TimelineChip({required this.index, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: scheme.primaryContainer,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 10,
-            backgroundColor: scheme.primary,
-            child: Text('$index',
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: scheme.onPrimary)),
-          ),
-          const SizedBox(width: 6),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 120),
-            child: Text(label,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
-    );
-  }
-}
