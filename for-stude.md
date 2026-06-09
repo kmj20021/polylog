@@ -11,8 +11,8 @@
 [Flutter 앱]
     │  HTTPS 요청 + Authorization: Bearer <Google 토큰>
     ▼
-[API Gateway]  ── (요청마다) Lambda Authorizer 로 토큰 검사 ──┐
-    │  통과한 요청만 통과시킴(프록시 통합)                     │
+[API Gateway]  ── (요청마다) Lambda Authorizer 로 토큰 검사 ────┐
+    │  통과한 요청만 통과시킴(프록시 통합)                        │
     ▼                                                        ▼
 [Lambda 함수들]                                       [fn-authorizer]
  health    : 살아있는지 확인(헬스체크)                 Google tokeninfo 로
