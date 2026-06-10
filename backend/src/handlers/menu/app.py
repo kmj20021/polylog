@@ -57,6 +57,7 @@ _CORS = {
 
 
 def lambda_handler(event, context):
+    """메인 핸들러: base64 이미지를 받아 Bedrock 비전으로 메뉴판을 분석하고 번역·추천을 반환."""
     # CORS preflight
     if (event.get("httpMethod") or "").upper() == "OPTIONS":
         return _resp(200, {})
@@ -127,7 +128,7 @@ def lambda_handler(event, context):
 # 입력 처리
 # ──────────────────────────────────────────────────────────────
 def _decode_image(raw_b64):
-    """data URI 접두사를 떼고 base64 디코드. 실패 시 None."""
+    """Base64 이미지 디코딩: data URI 접두사를 제거하고 base64를 디코드."""
     s = raw_b64.strip()
     if s.startswith("data:"):
         comma = s.find(",")
@@ -140,14 +141,14 @@ def _decode_image(raw_b64):
 
 
 def _media_type(image_bytes):
-    """매직바이트로 PNG/JPEG 판별(Bedrock 이미지 블록의 media_type). 기본 jpeg."""
+    """이미지 포맷 판별: 매직바이트로 PNG/JPEG 타입을 구분하여 반환."""
     if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
         return "image/png"
     return "image/jpeg"
 
 
 def _parse_price(value):
-    """가격 값에서 숫자만 뽑아 정수로. 없으면 None.
+    """가격 파싱: 문자열에서 숫자만 추출하여 정수로 반환.
 
     예) 'ラーメン ¥900' → 900, '5,500' → 5500, 900(int) → 900. (통화기호·콤마·점 무시)
     DynamoDB float 회피 위해 정수로 둔다.
@@ -167,7 +168,7 @@ def _parse_price(value):
 # AWS 부품(각각 단위테스트에서 monkeypatch 대상)
 # ──────────────────────────────────────────────────────────────
 def _store_image(image_bytes, trip_id):
-    """원본 이미지를 polylog-media 에 SSE 로 저장하고 s3 key 반환. 실패하면 빈 문자열."""
+    """이미지 저장: 원본 이미지를 S3(polylog-media)에 암호화하여 저장하고 키 반환."""
     key = f"menus/{trip_id}/{uuid.uuid4()}.jpg"
     try:
         _s3.put_object(
@@ -183,7 +184,7 @@ def _store_image(image_bytes, trip_id):
 
 
 def _analyze_menu(image_bytes, dietary, language):
-    """Bedrock(Claude Haiku 비전) 한 콜로 메뉴판 사진을 읽어 '문자 체계 판별' + (라틴이면) 항목+번역+추천.
+    """메뉴 분석: Bedrock 비전으로 메뉴판의 문자 체계를 판별하고 라틴 문자면 항목·번역·추천을 추출.
 
     반환: (script, detected_lang, items, recommended)
       script: "latin" | "non_latin"  (비라틴이면 items/recommended 는 빈 리스트)
@@ -252,7 +253,7 @@ def _analyze_menu(image_bytes, dietary, language):
 
 
 def _save_menu(trip_id, created_at, menu_id, photo_s3_key, items, recommended):
-    """polylog-menus(PK trip_id, SK created_at) 에 이력 저장. 실패는 무시(결과 반환 우선)."""
+    """메뉴 이력 저장: 분석 결과를 DynamoDB(polylog-menus)에 저장."""
     try:
         _menus_table.put_item(Item={
             "trip_id": trip_id,
@@ -270,7 +271,7 @@ def _save_menu(trip_id, created_at, menu_id, photo_s3_key, items, recommended):
 # 공용 유틸 (배포 패키지가 달라 import 불가 — 의존성 0 유지)
 # ──────────────────────────────────────────────────────────────
 def _invoke_claude_vision(prompt, image_bytes, max_tokens=768):
-    """Claude Haiku(멀티모달)에 이미지 + 지시문을 보내 텍스트 응답을 받는다."""
+    """Bedrock API 호출: Claude Haiku 비전 모델에 이미지와 프롬프트를 전송하여 응답 수신."""
     b64 = base64.b64encode(image_bytes).decode("ascii")
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
@@ -308,7 +309,7 @@ def _invoke_claude_vision(prompt, image_bytes, max_tokens=768):
 
 
 def _parse_json_object(text):
-    """모델이 코드펜스나 잡설을 섞어도 첫 '{'~마지막 '}' 구간만 잘라 JSON 파싱."""
+    """JSON 파싱: 텍스트에서 첫 '{'부터 마지막 '}'까지의 JSON 객체를 추출하여 파싱."""
     if not text:
         return {}
     start = text.find("{")
@@ -319,10 +320,12 @@ def _parse_json_object(text):
 
 
 def _now_iso():
+    """현재 시간 반환: UTC 시간을 ISO 8601 형식 문자열로 반환."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _resp(status, payload):
+    """HTTP 응답 생성: 상태 코드와 페이로드로 CORS 헤더를 포함한 Lambda 응답을 구성."""
     return {
         "statusCode": status,
         "headers": _CORS,

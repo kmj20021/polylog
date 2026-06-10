@@ -147,9 +147,9 @@ class _MainShellState extends State<MainShell> {
                   trip: _current,
                   selectedDay: _selectedDay,
                   onMenu: () => _scaffoldKey.currentState?.openDrawer(),
-                  onLogoTap: _current == null
-                      ? null
-                      : () => setState(() => _menuOpen = !_menuOpen),
+                  // 여행이 없어도 항상 누를 수 있게 한다('계획' 등 기능 입구이기 때문).
+                  // 여행이 필요한 기능은 메뉴 선택 시점에 별도로 안내한다(_openFeature 가드).
+                  onLogoTap: () => setState(() => _menuOpen = !_menuOpen),
                   onSelectDay: (d) => setState(() => _selectedDay = d),
                 ),
                 // 블루 패널 — 상단을 곡선으로 깎아(레퍼런스 main.jpg) 흰 헤더가
@@ -181,14 +181,25 @@ class _MainShellState extends State<MainShell> {
               child: _ExpandingNavMenu(
                 open: _menuOpen,
                 onSelect: (dest) {
+                  // '메뉴'(구글 렌즈)는 여행이 없어도 쓸 수 있지만, 계획·영수증·근처는
+                  // 한 여행에 속한 데이터라 여행이 없으면 열어도 비어 있다. 그래서
+                  // 여행이 없을 땐 안내만 하고 멈춘다(왼쪽 위에서 여행 고르기 유도).
+                  if (dest != _NavDest.menu && _current == null) {
+                    setState(() => _menuOpen = false);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('먼저 왼쪽 위에서 여행을 고르거나 만들어 주세요.')));
+                    return;
+                  }
                   switch (dest) {
                     case _NavDest.plan:
                       _openFeature(ScheduleScreen(
                           tripId: id, tripName: name, day: _selectedDay));
                     case _NavDest.menu:
-                      _openFeature(MenuScreen(tripName: name));
+                      _openFeature(MenuScreen(
+                          tripId: id, tripName: name, day: _selectedDay));
                     case _NavDest.receipt:
-                      _openFeature(ReceiptScreen(tripId: id, tripName: name));
+                      _openFeature(ReceiptScreen(
+                          tripId: id, tripName: name, day: _selectedDay));
                     case _NavDest.nearby:
                       _openFeature(RecommendScreen(
                           tripId: id, tripName: name, day: _selectedDay));

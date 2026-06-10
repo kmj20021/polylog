@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/dio_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../shared/bookmark_panel.dart';
+import '../../shared/feature_nav.dart';
 import '../../shared/place_chat.dart';
 
 /// 위치 기반 AI 장소 추천 — 대화형 화면 (메인 기능 #1).
@@ -144,6 +145,13 @@ class _RecommendScreenState extends State<RecommendScreen> {
                     BookmarkTopBar(
                       title: widget.tripName,
                       onBack: () => Navigator.of(context).maybePop(),
+                      onLogoTap: () => showFeatureNavMenu(
+                        context,
+                        tripId: widget.tripId,
+                        tripName: widget.tripName,
+                        day: widget.day,
+                        current: FeatureDest.nearby,
+                      ),
                     ),
                     const SizedBox(height: collapsedH + 16), // 접힌 패널 + 여백
                     Expanded(

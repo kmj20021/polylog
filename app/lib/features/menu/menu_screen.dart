@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../shared/bookmark_panel.dart';
+import '../../shared/feature_nav.dart';
 import '../../shared/google_lens.dart';
 
 /// 메뉴판 화면 — 구글 렌즈로 안내만 한다(앱 자체 분석 폐지).
@@ -14,7 +15,16 @@ import '../../shared/google_lens.dart';
 /// → 라틴/비라틴 구분·카메라 촬영·백엔드(/menu) 호출을 모두 없애고, 렌즈로 단일화했다.
 class MenuScreen extends StatelessWidget {
   final String tripName;
-  const MenuScreen({super.key, required this.tripName});
+
+  /// 기능 화면끼리 이동할 때 같은 여행 맥락을 넘기기 위한 값(메뉴 화면 자체는 안 씀).
+  final String tripId;
+  final String day;
+  const MenuScreen({
+    super.key,
+    required this.tripName,
+    this.tripId = '',
+    this.day = '',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +38,13 @@ class MenuScreen extends StatelessWidget {
             BookmarkTopBar(
               title: tripName,
               onBack: () => Navigator.of(context).maybePop(),
+              onLogoTap: () => showFeatureNavMenu(
+                context,
+                tripId: tripId,
+                tripName: tripName,
+                day: day,
+                current: FeatureDest.menu,
+              ),
             ),
             // 큰 흰 라운드 패널 — 안내 + 구글 렌즈 열기(다른 기능 화면과 같은 디자인).
             Expanded(

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/api/dio_client.dart';
 import '../../core/theme/app_colors.dart';
+import '../../shared/feature_nav.dart';
 
 /// 영수증(지출 가계부) 화면 — 현재 여행(tripId)의 지출을 사진으로 기록하고,
 /// 날짜별로 보여주며, 사용자가 직접 보정하고, 여행 전체 지출을 대시보드로 본다.
@@ -20,8 +21,11 @@ import '../../core/theme/app_colors.dart';
 class ReceiptScreen extends StatefulWidget {
   final String tripId;
   final String tripName;
+
+  /// 기능 화면끼리 이동할 때 같은 여행 날짜 맥락을 넘기기 위한 값(영수증 화면 자체는 안 씀).
+  final String day;
   const ReceiptScreen(
-      {super.key, required this.tripId, required this.tripName});
+      {super.key, required this.tripId, required this.tripName, this.day = ''});
 
   @override
   State<ReceiptScreen> createState() => _ReceiptScreenState();
@@ -291,16 +295,25 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             ),
           ),
           const SizedBox(width: 10),
-          Container(
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.base, width: 2),
+          GestureDetector(
+            onTap: () => showFeatureNavMenu(
+              context,
+              tripId: widget.tripId,
+              tripName: widget.tripName,
+              day: widget.day,
+              current: FeatureDest.receipt,
             ),
-            child: const CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.base,
-              backgroundImage: AssetImage('assets/logo/polylog_logo.png'),
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.base, width: 2),
+              ),
+              child: const CircleAvatar(
+                radius: 18,
+                backgroundColor: AppColors.base,
+                backgroundImage: AssetImage('assets/logo/polylog_logo.png'),
+              ),
             ),
           ),
         ],

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/dio_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../shared/bookmark_panel.dart';
+import '../../shared/feature_nav.dart';
 import '../../shared/maps_link.dart';
 import 'schedule_planner.dart';
 
@@ -174,6 +175,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     BookmarkTopBar(
                       title: widget.tripName,
                       onBack: () => Navigator.of(context).maybePop(),
+                      onLogoTap: () => showFeatureNavMenu(
+                        context,
+                        tripId: widget.tripId,
+                        tripName: widget.tripName,
+                        day: widget.day,
+                        current: FeatureDest.plan,
+                      ),
                     ),
                     const SizedBox(height: collapsedH + 16), // 접힌 패널 + 여백
                     Expanded(

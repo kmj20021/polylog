@@ -9,7 +9,11 @@ import '../core/theme/app_colors.dart';
 class BookmarkTopBar extends StatelessWidget {
   final String title;
   final VoidCallback onBack;
-  const BookmarkTopBar({super.key, required this.title, required this.onBack});
+
+  /// 우측 로고를 눌렀을 때 — 다른 기능으로 이동하는 메뉴를 연다(없으면 비활성).
+  final VoidCallback? onLogoTap;
+  const BookmarkTopBar(
+      {super.key, required this.title, required this.onBack, this.onLogoTap});
 
   @override
   Widget build(BuildContext context) {
@@ -35,16 +39,19 @@ class BookmarkTopBar extends StatelessWidget {
                       fontWeight: FontWeight.w700)),
             ),
             const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.base, width: 2),
-              ),
-              child: const CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.base,
-                backgroundImage: AssetImage('assets/logo/polylog_logo.png'),
+            GestureDetector(
+              onTap: onLogoTap,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.base, width: 2),
+                ),
+                child: const CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.base,
+                  backgroundImage: AssetImage('assets/logo/polylog_logo.png'),
+                ),
               ),
             ),
             const SizedBox(width: 8),
