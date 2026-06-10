@@ -183,13 +183,8 @@ class _TripsScreenState extends State<TripsScreen> {
   }
 
   /// 생성/수정 공용 입력 시트. 확인을 누르면 입력값을, 취소면 null 을 돌려준다.
-  Future<_TripForm?> _showTripForm({Trip? initial}) {
-    return showModalBottomSheet<_TripForm>(
-      context: context,
-      isScrollControlled: true, // 키보드가 올라와도 내용이 가려지지 않게
-      builder: (ctx) => _TripFormSheet(initial: initial),
-    );
-  }
+  Future<TripFormResult?> _showTripForm({Trip? initial}) =>
+      showTripFormSheet(context, initial: initial);
 
   @override
   Widget build(BuildContext context) {
@@ -357,12 +352,22 @@ class _Badge extends StatelessWidget {
   }
 }
 
+/// 여행 이름·기간 입력 시트를 띄워 결과를 돌려준다(취소면 null). '내 여행' 화면 밖
+/// (예: 계획 플래너의 '이대로 여행 만들기')에서도 같은 시트를 재사용하기 위한 진입점.
+Future<TripFormResult?> showTripFormSheet(BuildContext context, {Trip? initial}) {
+  return showModalBottomSheet<TripFormResult>(
+    context: context,
+    isScrollControlled: true, // 키보드가 올라와도 내용이 가려지지 않게
+    builder: (ctx) => _TripFormSheet(initial: initial),
+  );
+}
+
 /// 생성/수정 입력값 묶음(시트가 부모에게 돌려주는 결과).
-class _TripForm {
+class TripFormResult {
   final String name;
   final String startDate; // 'YYYY-MM-DD' 또는 ''
   final String endDate;
-  const _TripForm(
+  const TripFormResult(
       {required this.name, required this.startDate, required this.endDate});
 }
 
@@ -446,7 +451,7 @@ class _TripFormSheetState extends State<_TripFormSheet> {
     }
     Navigator.pop(
       context,
-      _TripForm(name: name, startDate: _iso(_start), endDate: _iso(_end)),
+      TripFormResult(name: name, startDate: _iso(_start), endDate: _iso(_end)),
     );
   }
 

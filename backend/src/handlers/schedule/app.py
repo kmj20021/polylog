@@ -13,6 +13,8 @@
   POST /schedule {action:"list_trips"}    → 여행 목록             (_handle_list_trips)
   POST /schedule {action:"update_trip"}   → 여행 이름·기간 수정    (_handle_update_trip)
   POST /schedule {action:"delete_trip"}   → 여행 삭제(일정·대화 포함)(_handle_delete_trip)
+  POST /schedule {action:"get_profile"}   → 사용자 취향 조회        (_handle_get_profile)
+  POST /schedule {action:"save_profile"}  → 사용자 취향 저장        (_handle_save_profile)
   POST /schedule {place_name, ...}        → 한 장소 담기           (_handle_post)
   GET  /schedule?trip_id=...              → 타임라인 조회          (_handle_get)
   DELETE /schedule {trip_id,start_time}   → 한 항목 삭제           (_handle_delete)
@@ -64,6 +66,7 @@ _dynamodb = boto3.resource("dynamodb", region_name="ap-northeast-2")
 _TABLE_NAME = os.environ.get("SCHEDULES_TABLE", "polylog-schedules")
 _CHATS_TABLE = os.environ.get("CHATS_TABLE", "polylog-chats")
 _TRIPS_TABLE = os.environ.get("TRIPS_TABLE", "polylog-trips")
+_USERS_TABLE = os.environ.get("USERS_TABLE", "polylog-users")
 
 # Bedrock 은 us-east-1(모델 액세스 승인 리전)에서 호출.
 _bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
@@ -87,6 +90,7 @@ _FIELD_MASK = ",".join(
 )
 
 _DEFAULT_TRIP_ID = "demo-trip"   # 로그인/Trip 생성 전 PoC 고정값
+_DEFAULT_USER_ID = "demo-user"   # 인가(authorizer) 비강제 상태의 PoC 고정 사용자
 _DEFAULT_RADIUS_M = 2000         # 근처 모드일 때 위치 편향 반경(도보권 조금 넓게)
 _MAX_SEARCHES = 4                # 의도판단이 뽑은 검색어 중 실제 호출할 상한(지연·요금 관리)
 _PER_QUERY_LIMIT = 6            # 검색어 1개당 가져올 후보 수
@@ -129,6 +133,12 @@ def lambda_handler(event, context):
             return _handle_update_trip(body)
         if action == "delete_trip":
             return _handle_delete_trip(body)
+        # 사용자 취향(계정 관리) — 로그인 사용자별 1행(polylog-users). event 의 인가
+        # 컨텍스트에서 user_id 를 얻으므로(없으면 PoC 고정) body 와 함께 event 도 넘긴다.
+        if action == "get_profile":
+            return _handle_get_profile(body, event)
+        if action == "save_profile":
+            return _handle_save_profile(body, event)
         return _handle_post(body)
     return _resp(405, {"error": f"지원하지 않는 메서드: {method}"})
 
@@ -350,6 +360,72 @@ def _handle_delete_trip(body):
             Key={"trip_id": trip_id, "created_at": c["created_at"]})
     _trips_table().delete_item(Key={"trip_id": trip_id})  # 3) 여행 자체
     return _resp(200, {"type": "trip_deleted", "trip_id": trip_id})
+
+
+# ════════════════════════════ 사용자 취향(계정 관리) ════════════════════════════
+# 앱 '계정 관리' 화면이 고른 선호(여행 스타일·분위기·운동·예산·동행 등)를 사용자별로
+# polylog-users(PK user_id)에 1행으로 저장한다. AI(추천·플래너)가 나중에 이 취향을
+# 배경지식으로 읽어 개인화하는 것이 목적(프롬프트 연결은 후속 작업).
+#
+# 스키마를 백엔드에 고정하지 않는다 — 프론트가 보낸 `preferences`(맵)를 그대로 저장하므로,
+# 카테고리를 추가/변경해도 이 함수는 손댈 필요가 없다(프론트가 스키마의 주인).
+#   값: 복수 선택 = 문자열 리스트, 단일 선택 = 문자열. 빈 항목은 떨군다.
+def _handle_get_profile(body, event):
+    """사용자 취향을 돌려준다(없으면 빈 preferences)."""
+    user_id = _resolve_user_id(event, body)
+    item = _users_table().get_item(Key={"user_id": user_id}).get("Item") or {}
+    prefs = item.get("preferences") or {}
+    return _resp(200, {
+        "type": "profile",
+        "user_id": user_id,
+        "preferences": _json_safe(prefs),
+    })
+
+
+def _handle_save_profile(body, event):
+    """사용자 취향을 통째로 저장한다(전체 교체 — 프론트가 항상 완전한 맵을 보냄)."""
+    user_id = _resolve_user_id(event, body)
+    prefs = body.get("preferences")
+    if not isinstance(prefs, dict):
+        return _resp(400, {"error": "preferences(객체)는 필수입니다."})
+    cleaned = _clean_preferences(prefs)
+    _users_table().put_item(Item={
+        "user_id": user_id,
+        "preferences": cleaned,
+        "updated_at": _now_iso(),
+    })
+    return _resp(200, {"type": "profile_saved",
+                       "user_id": user_id, "preferences": cleaned})
+
+
+def _clean_preferences(prefs):
+    """프론트가 보낸 선호 맵을 정리한다: 값은 문자열 리스트(복수) 또는 문자열(단일)만,
+    공백 정리 후 빈 값은 떨군다(저장 깔끔 + 깨진 입력 방어)."""
+    out = {}
+    for raw_key, raw_val in prefs.items():
+        key = _clean(raw_key)
+        if not key:
+            continue
+        if isinstance(raw_val, list):
+            vals = [_clean(v) for v in raw_val if _clean(v)]
+            if vals:
+                out[key] = vals
+        else:
+            val = _clean(raw_val)
+            if val:
+                out[key] = val
+    return out
+
+
+def _resolve_user_id(event, body):
+    """누구의 취향인지 식별한다. 우선순위: 인가 컨텍스트(authorizer)가 심은 user_id →
+    body 의 user_id → PoC 고정값. (현재 인가 비강제라 대개 고정값으로 동작.)"""
+    rc = (event or {}).get("requestContext") or {}
+    authz = rc.get("authorizer") or {}
+    uid = _clean(authz.get("user_id"))
+    if uid:
+        return uid
+    return _clean(body.get("user_id")) or _DEFAULT_USER_ID
 
 
 # ════════════════════════════ 대화형 플래너(action="chat") ════════════════════════════
@@ -803,6 +879,10 @@ def _chats_table():
 
 def _trips_table():
     return _dynamodb.Table(_TRIPS_TABLE)
+
+
+def _users_table():
+    return _dynamodb.Table(_USERS_TABLE)
 
 
 def _parse_body(event):

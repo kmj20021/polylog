@@ -39,8 +39,11 @@ class _RecommendScreenState extends State<RecommendScreen> {
     _loadTimeline();
   }
 
-  /// 서버에서 현재 여행(demo-trip)의 일정을 시간순으로 불러와 상단 타임라인을 채운다.
+  /// 서버에서 현재 여행의 일정을 시간순으로 불러와 상단 타임라인을 채운다.
+  /// 여행이 없으면(tripId 빈 값) 서버가 demo-trip 으로 대체해 엉뚱한 일정을 보여주므로
+  /// 아예 부르지 않고 빈 타임라인으로 둔다(DynamoDB — Query 생략).
   Future<void> _loadTimeline() async {
+    if (widget.tripId.isEmpty) return;
     try {
       final res = await DioClient().get<Map<String, dynamic>>(
         '/schedule',
@@ -61,8 +64,17 @@ class _RecommendScreenState extends State<RecommendScreen> {
   }
 
   /// 추천 카드의 '담기' → 서버에 저장 후 상단 타임라인 갱신. 성공하면 true.
+  ///
+  /// 여행이 없으면(tripId 빈 값) 담을 곳이 없다. 그냥 저장하면 서버가 빈 trip_id 를
+  /// demo-trip 으로 대체해 '보이지 않는 여행'에 쌓이므로(DynamoDB — PutItem),
+  /// 저장하지 않고 여행부터 만들도록 안내한다.
   Future<bool> _addToSchedule(Place p) async {
     final messenger = ScaffoldMessenger.of(context);
+    if (widget.tripId.isEmpty) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('담을 여행이 없어요. 먼저 여행을 만들어 주세요(왼쪽 위 메뉴 → 내 여행 관리).')));
+      return false;
+    }
     try {
       await DioClient().post<Map<String, dynamic>>(
         '/schedule',
@@ -138,6 +150,9 @@ class _RecommendScreenState extends State<RecommendScreen> {
             const collapsedH = 112.0;
             final expandedH =
                 ((constraints.maxHeight - topBarH) * 0.72).clamp(220.0, 600.0);
+            // 담을 여행이 없으면(tripId 빈 값) 상단 일정 패널과 담기를 모두 숨겨
+            // '순수 탐색 대화창'으로만 쓴다(시나리오: 여행 없는 근처 = 대화창만).
+            final hasTrip = widget.tripId.isNotEmpty;
             return Stack(
               children: [
                 Column(
@@ -153,7 +168,8 @@ class _RecommendScreenState extends State<RecommendScreen> {
                         current: FeatureDest.nearby,
                       ),
                     ),
-                    const SizedBox(height: collapsedH + 16), // 접힌 패널 + 여백
+                    // 일정 패널이 있을 때만 그만큼 위를 비워 둔다(없으면 대화창이 꽉 참).
+                    if (hasTrip) const SizedBox(height: collapsedH + 16),
                     Expanded(
                       child: Container(
                         margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -164,7 +180,8 @@ class _RecommendScreenState extends State<RecommendScreen> {
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: PlaceChat(
-                          onAdd: _addToSchedule,
+                          // 여행이 없으면 담기 위임을 주지 않아 카드의 '담기'가 숨겨진다.
+                          onAdd: hasTrip ? _addToSchedule : null,
                           greeting: '주변에 무엇이 있는지 찾아드려요!\n'
                               '예: "근처 괜찮은 레스토랑 있어?", "조용한 카페 추천해줘"',
                         ),
@@ -173,17 +190,19 @@ class _RecommendScreenState extends State<RecommendScreen> {
                   ],
                 ),
                 // 상단 책갈피 패널 — 내 여행 일정(펼치면 대화 위로 내려와 덮는다).
-                Positioned(
-                  top: topBarH,
-                  left: 16,
-                  right: 16,
-                  child: BookmarkPanel(
-                    collapsedHeight: collapsedH,
-                    expandedHeight: expandedH,
-                    collapsedChild: _collapsedItinerary(),
-                    expandedChild: _expandedItinerary(),
+                // 담을 여행이 없으면 통째로 숨긴다.
+                if (hasTrip)
+                  Positioned(
+                    top: topBarH,
+                    left: 16,
+                    right: 16,
+                    child: BookmarkPanel(
+                      collapsedHeight: collapsedH,
+                      expandedHeight: expandedH,
+                      collapsedChild: _collapsedItinerary(),
+                      expandedChild: _expandedItinerary(),
+                    ),
                   ),
-                ),
               ],
             );
           },

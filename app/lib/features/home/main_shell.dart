@@ -4,19 +4,20 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/dio_client.dart';
 import '../../core/theme/app_colors.dart';
+import '../account/account_screen.dart';
 import '../menu/menu_screen.dart';
 import '../receipt/receipt_screen.dart';
 import '../recommend/recommend_screen.dart';
-import '../schedule/schedule_screen.dart';
+import '../schedule/plans_screen.dart';
 import '../trips/trip.dart';
 import '../trips/trips_screen.dart';
 import 'my_trip_home.dart';
 
 /// 앱의 메인 셸 — 레퍼런스(docs/ref-image/main.jpg) 구조.
 ///
-///   - 흰색 상단 헤더 : 좌측 햄버거 / 우측 로고 원형 + "내 여행" + 날짜 스트립.
+///   - 흰색 상단 헤더 : 좌측 계정 버튼 / 우측 로고 원형 + "내 여행" + 날짜 스트립.
 ///   - 블루 패널      : 상단이 곡선으로 깎인 패널. 선택한 날짜의 계획을 타임라인 카드로(MyTripHome).
-///   - 좌측 햄버거    : 드로어로 '다른 여행'(오늘이 기간 밖) 전환 + '내 여행 관리'.
+///   - 좌측 계정 버튼 : '계정 관리'(취향 설정 + 내 여행 관리 + 로그아웃)로 이동(push).
 ///   - 우측 로고 원형 : 누르면 아래로 펼쳐지는 메뉴 → 계획·메뉴·영수증·근처로 이동(push).
 ///
 /// '현재 여행(_current)' — 기능 화면은 모두 한 여행에 속한 데이터다. 앱을 켜면 '여행 중'
@@ -30,9 +31,6 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
-
-  final List<Trip> _trips = []; // 드로어('다른 여행')용 전체 목록
   Trip? _current;               // 현재 여행(없으면 안내 표시)
   String _selectedDay = '';     // 보고 있는 날짜 — 계획/근처로 담을 때도 이 날 사용
   bool _loaded = false;         // 첫 자동 선택을 마쳤는지
@@ -57,9 +55,6 @@ class _MainShellState extends State<MainShell> {
           .toList();
       if (!mounted) return;
       setState(() {
-        _trips
-          ..clear()
-          ..addAll(trips);
         if (_current == null) {
           Trip? ongoing;
           for (final t in trips) {
@@ -93,21 +88,63 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  /// 드로어에서 다른 여행을 골랐을 때 — 현재 여행으로 삼고 드로어를 닫는다.
-  void _selectTrip(Trip trip) {
-    Navigator.of(context).pop();
-    setState(() {
-      _current = trip;
-      _selectedDay = trip.defaultDayYmd();
-    });
+  /// 왼쪽 위 버튼 '계정 관리' — 취향 설정 + 내 여행 관리 + 로그아웃 화면을 연다.
+  /// 돌아오면 (여행이 추가/수정됐을 수 있으니) 목록·홈을 새로고침한다.
+  Future<void> _openAccount() async {
+    setState(() => _menuOpen = false);
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => AccountScreen(onManageTrips: _openTripManager),
+    ));
+    if (!mounted) return;
+    await _reloadAndAutoSelect();
+  }
+
+  /// '내 여행 관리'(TripsScreen) — 여행 선택(현재 여행 전환)·수정·삭제. 계정 관리
+  /// 화면과 '여행 없음' 안내에서 공유한다. 여행을 탭하면 현재 여행으로 바뀐다.
+  Future<void> _openTripManager() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => TripsScreen(
+        currentTripId: _current?.tripId,
+        onSelect: (t) => setState(() {
+          _current = t;
+          _selectedDay = t.defaultDayYmd();
+        }),
+        onChanged: _reloadAndAutoSelect,
+      ),
+    ));
+    if (!mounted) return;
+    await _reloadAndAutoSelect();
   }
 
   /// 우측 로고 메뉴에서 기능을 골랐을 때 — 그 화면을 현재 여행으로 연다(push).
   /// 돌아오면 홈을 새로 만들어(계획 담기/편집 결과를) 다시 불러온다.
+  ///
+  /// 여행이 없는 상태의 '계획'에서 '이대로 여행 만들기'로 새 여행을 만들면, 그 화면이
+  /// 새 [Trip] 을 결과로 돌려준다 → 이를 현재 여행으로 삼고 목록을 새로고침한다.
   Future<void> _openFeature(Widget screen) async {
     setState(() => _menuOpen = false);
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
-    if (mounted) setState(() => _homeTick++);
+    final result = await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => screen));
+    if (!mounted) return;
+    if (result is Trip) {
+      setState(() {
+        _current = result;
+        _selectedDay = result.defaultDayYmd();
+      });
+      await _reloadAndAutoSelect(); // 새 여행을 목록·홈에 반영
+    } else {
+      setState(() => _homeTick++);
+    }
+  }
+
+  /// 로고 메뉴 '계획' — '아직 지나지 않은' 계획 목록 화면을 연다.
+  /// 이 화면에서 계획을 골라 일정을 보더라도 '현재 여행'은 바꾸지 않는다(홈 '내 여행'엔
+  /// 영향 없음). 돌아오면 새로 만든 계획이 드로어 목록에 반영되도록 목록만 새로고침한다.
+  Future<void> _openPlans() async {
+    setState(() => _menuOpen = false);
+    await showPlansPopup(context);
+    if (!mounted) return;
+    await _reloadAndAutoSelect();
   }
 
   @override
@@ -116,27 +153,7 @@ class _MainShellState extends State<MainShell> {
     final name = _current?.name ?? '';
 
     return Scaffold(
-      key: _scaffoldKey,
       backgroundColor: AppColors.base,
-      drawer: _OtherTripsDrawer(
-        trips: _trips,
-        currentId: _current?.tripId,
-        onSelect: _selectTrip,
-        onManage: () async {
-          Navigator.of(context).pop();
-          await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => TripsScreen(
-              currentTripId: _current?.tripId,
-              onSelect: (t) => setState(() {
-                _current = t;
-                _selectedDay = t.defaultDayYmd();
-              }),
-              onChanged: _reloadAndAutoSelect,
-            ),
-          ));
-          await _reloadAndAutoSelect();
-        },
-      ),
       body: SafeArea(
         bottom: false,
         child: Stack(
@@ -146,7 +163,7 @@ class _MainShellState extends State<MainShell> {
                 _Header(
                   trip: _current,
                   selectedDay: _selectedDay,
-                  onMenu: () => _scaffoldKey.currentState?.openDrawer(),
+                  onAccount: _openAccount,
                   // 여행이 없어도 항상 누를 수 있게 한다('계획' 등 기능 입구이기 때문).
                   // 여행이 필요한 기능은 메뉴 선택 시점에 별도로 안내한다(_openFeature 가드).
                   onLogoTap: () => setState(() => _menuOpen = !_menuOpen),
@@ -181,19 +198,20 @@ class _MainShellState extends State<MainShell> {
               child: _ExpandingNavMenu(
                 open: _menuOpen,
                 onSelect: (dest) {
-                  // '메뉴'(구글 렌즈)는 여행이 없어도 쓸 수 있지만, 계획·영수증·근처는
-                  // 한 여행에 속한 데이터라 여행이 없으면 열어도 비어 있다. 그래서
-                  // 여행이 없을 땐 안내만 하고 멈춘다(왼쪽 위에서 여행 고르기 유도).
-                  if (dest != _NavDest.menu && _current == null) {
+                  // 계획(AI 일정 대화)·근처(장소 검색)·메뉴(구글 렌즈)는 모두 GPS/대화
+                  // 기반이라 여행이 없어도 '쓰는 것' 자체는 가능하다 — 다만 '담기'만
+                  // 한 여행에 속하므로, 여행이 없을 땐 각 화면이 담기 시점에 안내한다
+                  // (RecommendScreen._addToSchedule / SchedulePlanner._addOne 가드).
+                  // 영수증만은 특정 여행의 지출 기록이라 여행이 없으면 의미가 없어 막는다.
+                  if (dest == _NavDest.receipt && _current == null) {
                     setState(() => _menuOpen = false);
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('먼저 왼쪽 위에서 여행을 고르거나 만들어 주세요.')));
+                        content: Text('영수증은 여행을 먼저 고르거나 만들어야 사용할 수 있어요.')));
                     return;
                   }
                   switch (dest) {
                     case _NavDest.plan:
-                      _openFeature(ScheduleScreen(
-                          tripId: id, tripName: name, day: _selectedDay));
+                      _openPlans();
                     case _NavDest.menu:
                       _openFeature(MenuScreen(
                           tripId: id, tripName: name, day: _selectedDay));
@@ -243,15 +261,15 @@ class _MainShellState extends State<MainShell> {
                     fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Text(
-              '왼쪽 위 메뉴에서 여행을 고르거나 새로 만들어 보세요.\n'
+              '"내 여행 관리"에서 여행을 고르거나 새로 만들어 보세요.\n'
               '(여행 기간에 오늘이 들면 자동으로 선택됩니다.)',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.base.withValues(alpha: 0.85)),
             ),
             const SizedBox(height: 20),
             FilledButton.tonalIcon(
-              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-              icon: const Icon(Icons.menu),
+              onPressed: _openTripManager,
+              icon: const Icon(Icons.luggage_outlined),
               label: const Text('여행 고르기'),
             ),
           ],
@@ -261,17 +279,17 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-/// 흰색 상단 헤더 — 햄버거 / 로고 원형 + "내 여행" + 여행 이름·오늘 + 날짜 스트립.
+/// 흰색 상단 헤더 — 계정 버튼 / 로고 원형 + "내 여행" + 여행 이름·오늘 + 날짜 스트립.
 class _Header extends StatelessWidget {
   final Trip? trip;
   final String selectedDay;
-  final VoidCallback onMenu;
+  final VoidCallback onAccount;
   final VoidCallback? onLogoTap; // 현재 여행 없으면 null(비활성)
   final ValueChanged<String> onSelectDay;
   const _Header({
     required this.trip,
     required this.selectedDay,
-    required this.onMenu,
+    required this.onAccount,
     required this.onLogoTap,
     required this.onSelectDay,
   });
@@ -293,7 +311,7 @@ class _Header extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 상단 아이콘 줄: 햄버거 / 로고 원형 (+ 우상단을 감싸는 블루 블록)
+          // 상단 아이콘 줄: 계정 버튼 / 로고 원형 (+ 우상단을 감싸는 블루 블록)
           Stack(
             clipBehavior: Clip.none,
             children: [
@@ -317,9 +335,9 @@ class _Header extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
-                    tooltip: '다른 여행',
-                    onPressed: onMenu,
-                    icon: const Icon(Icons.menu),
+                    tooltip: '계정 관리',
+                    onPressed: onAccount,
+                    icon: const Icon(Icons.account_circle_outlined),
                     color: Colors.black87,
                   ),
                   GestureDetector(
@@ -560,79 +578,6 @@ class _ExpandingNavMenu extends StatelessWidget {
       leading: Icon(icon, color: AppColors.blue),
       title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
       onTap: () => onSelect(dest),
-    );
-  }
-}
-
-/// 좌측 드로어 — '다른 여행'(오늘이 기간에 안 든 여행) 목록 + '내 여행 관리' 진입점.
-class _OtherTripsDrawer extends StatelessWidget {
-  final List<Trip> trips;
-  final String? currentId;
-  final ValueChanged<Trip> onSelect;
-  final VoidCallback onManage;
-  const _OtherTripsDrawer({
-    required this.trips,
-    required this.currentId,
-    required this.onSelect,
-    required this.onManage,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final others =
-        trips.where((t) => !t.isOngoing() && t.tripId != currentId).toList();
-    return Drawer(
-      backgroundColor: AppColors.base,
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-              child: Text('다른 여행',
-                  style: theme.textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: others.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          '다른 여행이 없어요.\n아래 "내 여행 관리"에서 만들 수 있어요.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: theme.colorScheme.onSurfaceVariant),
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: others.length,
-                      itemBuilder: (context, i) {
-                        final t = others[i];
-                        return ListTile(
-                          leading: const Icon(Icons.luggage_outlined,
-                              color: AppColors.blue),
-                          title: Text(t.name,
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(t.dateRangeLabel),
-                          onTap: () => onSelect(t),
-                        );
-                      },
-                    ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.settings_outlined),
-              title: const Text('내 여행 관리'),
-              subtitle: const Text('만들기 · 수정 · 삭제 · 로그아웃'),
-              onTap: onManage,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

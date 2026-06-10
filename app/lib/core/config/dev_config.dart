@@ -8,9 +8,8 @@ class DevConfig {
   /// 값 설정 → GPS 대신 이 좌표를 '현재 위치'로 사용 → 한국에 있어도 그 도시 기준으로
   ///           추천/일정 테스트가 가능하다(실기기에서 GPS 모킹이 어려울 때 유용).
   ///
-  /// 현재값: 캐나다 토론토 Union Station (테스트 기준 위치).
+  /// 현재값: null → 모든 화면이 실제 기기 GPS(현재 위치)를 사용한다.
   // null 로 바꿔 끌 수 있도록 일부러 nullable 로 둔다.
   // ignore: unnecessary_nullable_for_final_variable_declarations
-  static const ({double lat, double lng, String label})? mockLocation =
-      (lat: 43.6453, lng: -79.3806, label: '토론토 Union Station (테스트)');
+  static const ({double lat, double lng, String label})? mockLocation = null;
 }

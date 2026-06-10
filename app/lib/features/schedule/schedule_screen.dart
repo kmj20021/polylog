@@ -43,7 +43,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   /// 서버에서 일정 전체를 시간순으로 불러온다(당겨서 새로고침도 이걸 호출).
+  /// 여행이 없으면(tripId 빈 값) 서버가 demo-trip 으로 대체해 엉뚱한 일정을 보여주므로
+  /// 부르지 않고 '빈 일정' 상태로 둔다(DynamoDB — Query 생략).
   Future<void> _load() async {
+    if (widget.tripId.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _items.clear();
+        _loading = false;
+        _error = null;
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -197,6 +208,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                           tripId: widget.tripId,
                           day: widget.day, // 담을 때 이 날짜로 저장
                           onScheduleChanged: _load, // 담기/편집 후 타임라인 새로고침
+                          // 여행이 없을 때 '이대로 여행 만들기'로 새 여행이 생기면 이
+                          // 화면을 닫으며 새 여행을 돌려준다 → 홈(MainShell)이 현재
+                          // 여행으로 삼는다.
+                          onTripCreated: (trip) =>
+                              Navigator.of(context).pop(trip),
                         ),
                       ),
                     ),

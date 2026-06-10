@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../../core/api/dio_client.dart';
 import '../../core/config/dev_config.dart';
 import '../../core/location/geolocator.dart';
+import '../trips/trip.dart';
+import '../trips/trips_screen.dart';
 
 /// 여행 탭의 '대화형 일정 플래너' — 추천과 달리 AI가 대화를 기억하고 동선을 제안한다.
 ///
@@ -21,11 +23,16 @@ class SchedulePlanner extends StatefulWidget {
   /// 일정이 바뀌었을 때(편집 즉시반영/담기 확정) 호스트가 타임라인을 새로고침하도록.
   final Future<void> Function() onScheduleChanged;
 
+  /// 여행이 없을 때(tripId 빈 값) '이대로 여행 만들기'로 새 여행이 생기면 호출.
+  /// 호스트(ScheduleScreen)가 그 여행을 '현재 여행'으로 삼아 화면을 전환한다.
+  final ValueChanged<Trip>? onTripCreated;
+
   const SchedulePlanner({
     super.key,
     required this.tripId,
     this.day = '',
     required this.onScheduleChanged,
+    this.onTripCreated,
   });
 
   @override
@@ -143,8 +150,17 @@ class _SchedulePlannerState extends State<SchedulePlanner> {
   }
 
   /// 제안된 장소 하나를 일정에 저장(담기). 성공 시 위 타임라인 새로고침.
+  ///
+  /// 여행이 없으면(tripId 빈 값) 담을 곳이 없다. 그냥 저장하면 서버가 빈 trip_id 를
+  /// demo-trip 으로 대체해 '보이지 않는 여행'에 쌓이므로(DynamoDB — PutItem),
+  /// 저장하지 않고 여행부터 만들도록 안내한다(대화·동선 제안 자체는 계속 가능).
   Future<bool> _addOne(_Proposed p) async {
     final messenger = ScaffoldMessenger.of(context);
+    if (widget.tripId.isEmpty) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('담을 여행이 없어요. 먼저 여행을 만들어 주세요(왼쪽 위 메뉴 → 내 여행 관리).')));
+      return false;
+    }
     try {
       await DioClient().post<Map<String, dynamic>>(
         '/schedule',
@@ -169,8 +185,64 @@ class _SchedulePlannerState extends State<SchedulePlanner> {
     }
   }
 
+  /// '이대로 여행 만들기'(여행이 없을 때) — 제안 동선 전체를 한 여행으로 굳힌다.
+  ///   ① 여행 이름·기간을 입력받고(기존 '새 여행' 시트 재사용)
+  ///   ② 새 여행을 만들고(POST /schedule {action:"create_trip"} → 새 trip_id 발급)
+  ///   ③ 제안 장소들을 그 여행에 차례로 담는다(POST /schedule, DynamoDB — PutItem)
+  ///   ④ 호스트에 새 여행을 알려 '현재 여행'으로 전환시킨다(onTripCreated).
+  /// 성공 시 true(제안 카드가 '모두 담음'으로 잠김).
+  Future<bool> _createTripFromPlan(List<_Proposed> places) async {
+    final form = await showTripFormSheet(context);
+    if (form == null || !mounted) return false;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      // ② 새 여행 생성 — 응답의 trip 객체에 새 trip_id 가 들어 있다.
+      final res = await DioClient().post<Map<String, dynamic>>(
+        '/schedule',
+        data: {
+          'action': 'create_trip',
+          'name': form.name,
+          'start_date': form.startDate,
+          'end_date': form.endDate,
+        },
+      );
+      final tripJson = (res.data?['trip'] as Map?)?.cast<String, dynamic>();
+      if (tripJson == null) throw Exception('여행 생성 응답이 비어 있어요');
+      final trip = Trip.fromJson(tripJson);
+
+      // ③ 제안 장소를 새 여행에 차례로 담는다(시작일이 있으면 첫날로 묶는다).
+      for (final p in places) {
+        await DioClient().post<Map<String, dynamic>>(
+          '/schedule',
+          data: {
+            'trip_id': trip.tripId,
+            'place_id': p.placeId,
+            'place_name': p.placeName,
+            if (form.startDate.isNotEmpty) 'day': form.startDate,
+            if (p.timeLabel.isNotEmpty) 'time_label': p.timeLabel,
+            if (p.lat != null) 'latitude': p.lat,
+            if (p.lng != null) 'longitude': p.lng,
+            if (p.address.isNotEmpty) 'address': p.address,
+            if (p.rating != null) 'rating': p.rating,
+          },
+        );
+      }
+      if (!mounted) return true;
+      messenger.showSnackBar(SnackBar(
+          content: Text('"${trip.name}" 여행을 만들고 ${places.length}곳을 담았어요')));
+      // ④ 호스트가 현재 여행으로 전환(보통 이 화면을 닫고 새 여행 홈으로).
+      widget.onTripCreated?.call(trip);
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      messenger.showSnackBar(SnackBar(content: Text('여행 만들기 실패: $e')));
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasTrip = widget.tripId.isNotEmpty;
     return Column(
       children: [
         _GpsHint(tried: _gpsTried, hasPos: _pos != null,
@@ -183,7 +255,12 @@ class _SchedulePlannerState extends State<SchedulePlanner> {
             itemCount: _items.length + (_loading ? 1 : 0),
             itemBuilder: (context, i) {
               if (i >= _items.length) return const _TypingDots();
-              return _PlanItemView(item: _items[i], onAddOne: _addOne);
+              return _PlanItemView(
+                item: _items[i],
+                onAddOne: _addOne,
+                hasTrip: hasTrip,
+                onCreateTrip: _createTripFromPlan,
+              );
             },
           ),
         ),
@@ -258,7 +335,14 @@ class _Proposed {
 class _PlanItemView extends StatelessWidget {
   final _PlanItem item;
   final Future<bool> Function(_Proposed) onAddOne;
-  const _PlanItemView({required this.item, required this.onAddOne});
+  final bool hasTrip;
+  final Future<bool> Function(List<_Proposed>) onCreateTrip;
+  const _PlanItemView({
+    required this.item,
+    required this.onAddOne,
+    required this.hasTrip,
+    required this.onCreateTrip,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -266,7 +350,12 @@ class _PlanItemView extends StatelessWidget {
       _PUser(:final text) => _Bubble(text: text, fromUser: true),
       _PAi(:final text) => _Bubble(text: text, fromUser: false),
       _PError(:final text) => _ErrorCard(message: text),
-      _PProposal(:final places) => _ProposalBlock(places: places, onAddOne: onAddOne),
+      _PProposal(:final places) => _ProposalBlock(
+          places: places,
+          onAddOne: onAddOne,
+          hasTrip: hasTrip,
+          onCreateTrip: onCreateTrip,
+        ),
     };
   }
 }
@@ -277,7 +366,16 @@ class _PlanItemView extends StatelessWidget {
 class _ProposalBlock extends StatefulWidget {
   final List<_Proposed> places;
   final Future<bool> Function(_Proposed) onAddOne;
-  const _ProposalBlock({required this.places, required this.onAddOne});
+
+  /// 여행이 있으면 '이대로 전부 담기'(기존 일정에 추가), 없으면 '이대로 여행 만들기'.
+  final bool hasTrip;
+  final Future<bool> Function(List<_Proposed>) onCreateTrip;
+  const _ProposalBlock({
+    required this.places,
+    required this.onAddOne,
+    required this.hasTrip,
+    required this.onCreateTrip,
+  });
 
   @override
   State<_ProposalBlock> createState() => _ProposalBlockState();
@@ -308,6 +406,19 @@ class _ProposalBlockState extends State<_ProposalBlock> {
     }
     if (!mounted) return;
     setState(() => _busy = false);
+  }
+
+  /// 여행이 없을 때 — 이 동선 전체로 새 여행을 만든다(이름·기간 입력 → 생성 → 전부 담기).
+  Future<void> _createTrip() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final ok = await widget.onCreateTrip(widget.places);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      // 성공하면 보통 화면이 새 여행으로 전환되지만, 카드도 '담음'으로 잠가 둔다.
+      if (ok) _added.addAll(List.generate(widget.places.length, (i) => i));
+    });
   }
 
   @override
@@ -344,16 +455,26 @@ class _ProposalBlockState extends State<_ProposalBlock> {
                 place: widget.places[i],
                 added: _added.contains(i),
                 busy: _busy,
+                // 여행이 없으면 개별 담기는 숨기고, 하단 '이대로 여행 만들기'로 한 번에 굳힌다.
+                showAdd: widget.hasTrip,
                 onAdd: () => _addAt(i),
               ),
             const SizedBox(height: 4),
             SizedBox(
               width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: (_busy || allAdded) ? null : _addAll,
-                icon: Icon(allAdded ? Icons.check_circle : Icons.playlist_add),
-                label: Text(allAdded ? '모두 담음' : '이대로 전부 담기'),
-              ),
+              // 여행이 있으면 기존 일정에 '전부 담기', 없으면 이 동선으로 '여행 만들기'.
+              child: widget.hasTrip
+                  ? FilledButton.icon(
+                      onPressed: (_busy || allAdded) ? null : _addAll,
+                      icon: Icon(
+                          allAdded ? Icons.check_circle : Icons.playlist_add),
+                      label: Text(allAdded ? '모두 담음' : '이대로 전부 담기'),
+                    )
+                  : FilledButton.icon(
+                      onPressed: (_busy || allAdded) ? null : _createTrip,
+                      icon: Icon(allAdded ? Icons.check_circle : Icons.luggage),
+                      label: Text(allAdded ? '여행 만듦' : '이대로 여행 만들기'),
+                    ),
             ),
           ],
         ),
@@ -367,12 +488,14 @@ class _ProposedCard extends StatelessWidget {
   final _Proposed place;
   final bool added;
   final bool busy;
+  final bool showAdd; // 개별 '담기' 버튼 표시 여부(여행 없을 땐 숨김)
   final VoidCallback onAdd;
   const _ProposedCard({
     required this.index,
     required this.place,
     required this.added,
     required this.busy,
+    required this.showAdd,
     required this.onAdd,
   });
 
@@ -432,17 +555,20 @@ class _ProposedCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          added
-              ? const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.check_circle, size: 22, color: Colors.green),
-                )
-              : IconButton(
-                  tooltip: '이 곳 담기',
-                  onPressed: busy ? null : onAdd,
-                  icon: const Icon(Icons.add_circle_outline),
-                ),
+          if (showAdd) ...[
+            const SizedBox(width: 8),
+            added
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child:
+                        Icon(Icons.check_circle, size: 22, color: Colors.green),
+                  )
+                : IconButton(
+                    tooltip: '이 곳 담기',
+                    onPressed: busy ? null : onAdd,
+                    icon: const Icon(Icons.add_circle_outline),
+                  ),
+          ],
         ],
       ),
     );

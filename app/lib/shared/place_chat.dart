@@ -22,11 +22,13 @@ class PlaceChat extends StatefulWidget {
   final String greeting;
 
   /// '담기' 처리 위임. 성공하면 true(카드가 '담음'으로 잠김), 실패면 false(다시 시도 가능).
-  final Future<bool> Function(Place place) onAdd;
+  /// null 이면 담기 자체를 숨긴다 — 담을 여행이 없을 때(근처 탭, 여행 미선택)는 순수
+  /// 탐색용으로만 쓰이므로 카드에 '담기' 버튼을 띄우지 않는다.
+  final Future<bool> Function(Place place)? onAdd;
 
   const PlaceChat({
     super.key,
-    required this.onAdd,
+    this.onAdd,
     this.greeting = '안녕하세요! 지금 계신 곳 주변을 찾아드릴게요. '
         '예: "근처 괜찮은 레스토랑 있어?", "조용한 카페 추천해줘"',
   });
@@ -242,7 +244,7 @@ class _AiResult extends _ChatItem {
 class _ChatItemView extends StatelessWidget {
   final _ChatItem item;
   final ValueChanged<String> onPickCategory;
-  final Future<bool> Function(Place) onAddToSchedule;
+  final Future<bool> Function(Place)? onAddToSchedule;
   const _ChatItemView({
     required this.item,
     required this.onPickCategory,
@@ -462,7 +464,7 @@ class _ClarifyCard extends StatelessWidget {
 class _ResultBlock extends StatelessWidget {
   final String summary;
   final List<Place> places;
-  final Future<bool> Function(Place) onAdd;
+  final Future<bool> Function(Place)? onAdd;
   const _ResultBlock({
     required this.summary,
     required this.places,
@@ -523,7 +525,7 @@ class _SummaryCard extends StatelessWidget {
 
 class _PlaceCard extends StatefulWidget {
   final Place place;
-  final Future<bool> Function(Place) onAdd;
+  final Future<bool> Function(Place)? onAdd;
   const _PlaceCard({required this.place, required this.onAdd});
 
   @override
@@ -535,9 +537,9 @@ class _PlaceCardState extends State<_PlaceCard> {
   bool _adding = false;
 
   Future<void> _handleAdd() async {
-    if (_added || _adding) return;
+    if (_added || _adding || widget.onAdd == null) return;
     setState(() => _adding = true);
-    final ok = await widget.onAdd(widget.place);
+    final ok = await widget.onAdd!(widget.place);
     if (!mounted) return;
     setState(() {
       _adding = false;
@@ -606,12 +608,15 @@ class _PlaceCardState extends State<_PlaceCard> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                _AddButton(
-                  added: _added,
-                  adding: _adding,
-                  onPressed: _handleAdd,
-                ),
+                // 담기 위임(onAdd)이 없으면(담을 여행 미선택) 버튼 자체를 숨긴다.
+                if (widget.onAdd != null) ...[
+                  const SizedBox(width: 8),
+                  _AddButton(
+                    added: _added,
+                    adding: _adding,
+                    onPressed: _handleAdd,
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 6),

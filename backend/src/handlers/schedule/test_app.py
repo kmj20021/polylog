@@ -830,3 +830,90 @@ def test_delete_trip_cascades(monkeypatch):
     assert len(schedules.deleted_keys) == 2          # 일정 2개
     assert len(chats.deleted_keys) == 1              # 대화 1개
     assert trips.deleted_keys == [{"trip_id": "t1"}]  # 여행 자체
+
+
+# ─────────────────────────── 사용자 취향(계정 관리) ───────────────────────────
+def _install_users(monkeypatch, users):
+    monkeypatch.setattr(app, "_dynamodb",
+                        _FakeResource(users, {"polylog-users": users}))
+
+
+def _profile(body):
+    return {"httpMethod": "POST", "body": json.dumps(body)}
+
+
+def test_clean_preferences_lists_strings_and_drops_empty():
+    out = app._clean_preferences({
+        "travel_styles": [" 관광 위주 ", "", "미식"],   # 복수 → 리스트, 공백·빈 제거
+        "budget": " 보통 ",                              # 단일 → 문자열
+        "vibes": [],                                     # 빈 리스트 → 떨굼
+        "": "x",                                         # 빈 키 → 떨굼
+        "note": "",                                      # 빈 문자열 → 떨굼
+    })
+    assert out == {"travel_styles": ["관광 위주", "미식"], "budget": "보통"}
+
+
+def test_resolve_user_id_prefers_authorizer():
+    event = {"requestContext": {"authorizer": {"user_id": "google-sub-123"}}}
+    assert app._resolve_user_id(event, {}) == "google-sub-123"
+    # 인가 없으면 body → 없으면 PoC 고정값
+    assert app._resolve_user_id({}, {"user_id": "b"}) == "b"
+    assert app._resolve_user_id({}, {}) == "demo-user"
+
+
+def test_save_profile_stores_cleaned_preferences(monkeypatch):
+    users = _FakeTable()
+    _install_users(monkeypatch, users)
+
+    resp = app.lambda_handler(_profile({
+        "action": "save_profile",
+        "preferences": {
+            "travel_styles": ["관광 위주", "미식"],
+            "vibes": ["고급스러운"],
+            "budget": "보통",
+            "companion": "연인",
+        },
+    }), None)
+
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["type"] == "profile_saved"
+    assert body["user_id"] == "demo-user"
+    stored = users.put_items[0]
+    assert stored["user_id"] == "demo-user"
+    assert stored["preferences"]["travel_styles"] == ["관광 위주", "미식"]
+    assert stored["preferences"]["budget"] == "보통"
+    assert "updated_at" in stored
+
+
+def test_save_profile_requires_dict(monkeypatch):
+    users = _FakeTable()
+    _install_users(monkeypatch, users)
+
+    resp = app.lambda_handler(_profile({"action": "save_profile"}), None)
+    assert resp["statusCode"] == 400
+    assert users.put_items == []
+
+
+def test_get_profile_returns_saved(monkeypatch):
+    users = _FakeTable(query_items=[
+        {"user_id": "demo-user",
+         "preferences": {"travel_styles": ["미식"], "budget": "프리미엄"}},
+    ])
+    _install_users(monkeypatch, users)
+
+    resp = app.lambda_handler(_profile({"action": "get_profile"}), None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["type"] == "profile"
+    assert body["preferences"]["travel_styles"] == ["미식"]
+    assert body["preferences"]["budget"] == "프리미엄"
+
+
+def test_get_profile_empty_when_none(monkeypatch):
+    users = _FakeTable(query_items=[])
+    _install_users(monkeypatch, users)
+
+    resp = app.lambda_handler(_profile({"action": "get_profile"}), None)
+    body = json.loads(resp["body"])
+    assert body["preferences"] == {}

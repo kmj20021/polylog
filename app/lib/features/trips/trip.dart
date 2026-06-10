@@ -79,6 +79,20 @@ class Trip {
     return !d.isBefore(s) && !d.isAfter(e); // s <= d <= e
   }
 
+  /// '아직 지나지 않은' 계획인가 — '계획' 화면 목록의 필터 기준.
+  /// 종료일(없으면 시작일)이 오늘 이후면 true. 날짜가 미정(시작일 없음)이면 true.
+  /// 즉 '이미 끝난 여행'만 false 가 되고, 진행 중·미래·날짜 미정은 모두 true.
+  bool hasNotPassed([DateTime? now]) {
+    final start = DateTime.tryParse(startDate);
+    if (start == null) return true; // 날짜 미정 → 아직 안 지난 계획으로 본다
+    final end = DateTime.tryParse(endDate) ?? start;
+    final today = now ?? DateTime.now();
+    // 시/분을 떼고 '날짜'만 비교(마지막 날 당일도 '안 지남'에 포함).
+    final d = DateTime(today.year, today.month, today.day);
+    final e = DateTime(end.year, end.month, end.day);
+    return !e.isBefore(d); // e >= today
+  }
+
   static String _dot(String isoDate) =>
       isoDate.isEmpty ? '' : isoDate.replaceAll('-', '.');
 }
