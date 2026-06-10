@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/dio_client.dart';
 import '../../core/auth/auth_service.dart';
+import '../../core/theme/app_colors.dart';
 
 /// '계정 관리' 화면 — 메인 홈 왼쪽 위 버튼으로 들어온다(기존 '다른 여행' 드로어 대체).
 ///
@@ -13,42 +14,42 @@ import '../../core/auth/auth_service.dart';
 ///
 /// 취향 스키마는 **프론트가 주인**이다(아래 [_categories]). 백엔드는 받은 맵을 그대로
 /// 저장만 하므로, 카테고리를 늘려도 서버를 고칠 필요가 없다.
+///
+/// 디자인은 다른 기능 화면과 통일한다 — 메인 컬러(AppColors.blue) 배경 위에 흰색
+/// 라운드 시트를 얹는다. 아이콘은 쓰지 않는다(텍스트만으로 구성).
 class AccountScreen extends StatefulWidget {
-  /// '내 여행 관리'(TripsScreen) 진입 — 현재 여행 선택/수정/삭제는 메인 셸이 들고 있는
-  /// 콜백으로 처리되므로, 그 화면을 여는 일만 부모(MainShell)에 위임한다.
-  final VoidCallback onManageTrips;
+  /// '내 여행 관리' — 완료한 여행들의 기록(방문지·총비용·일별비용)을 보는 화면을 연다.
+  final VoidCallback onViewHistory;
 
-  const AccountScreen({super.key, required this.onManageTrips});
+  const AccountScreen({super.key, required this.onViewHistory});
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
 }
 
-/// 한 선호 항목(카테고리)의 정의 — 제목·아이콘·보기 목록·복수선택 여부.
+/// 한 선호 항목(카테고리)의 정의 — 제목·보기 목록·복수선택 여부.
 class _Category {
   final String key; // 서버 저장 키
   final String title;
-  final IconData icon;
   final List<String> options;
   final bool multi; // true=여러 개 고름, false=하나만
-  const _Category(this.key, this.title, this.icon, this.options,
-      {required this.multi});
+  const _Category(this.key, this.title, this.options, {required this.multi});
 }
 
 const List<_Category> _categories = [
-  _Category('travel_styles', '선호하는 여행 스타일', Icons.travel_explore, [
+  _Category('travel_styles', '선호하는 여행 스타일', [
     '관광 위주', '액티비티', '휴양·힐링', '미식', '쇼핑', '자연·풍경', '역사·문화',
   ], multi: true),
-  _Category('vibes', '선호하는 분위기', Icons.palette_outlined, [
+  _Category('vibes', '선호하는 분위기', [
     '고급스러운', '앤틱·클래식', '모던·세련', '아늑한', '활기찬', '로컬 감성',
   ], multi: true),
-  _Category('activities', '좋아하는 운동·활동', Icons.directions_run, [
+  _Category('activities', '좋아하는 운동·활동', [
     '수영', '스쿠버다이빙', '등산', '서핑', '자전거', '골프', '요가', '스키',
   ], multi: true),
-  _Category('budget', '예산 수준', Icons.payments_outlined, [
+  _Category('budget', '예산 수준', [
     '가성비', '보통', '프리미엄',
   ], multi: false),
-  _Category('companion', '주로 함께 가는 사람', Icons.group_outlined, [
+  _Category('companion', '주로 함께 가는 사람', [
     '혼자', '친구', '연인', '가족(아이 동반)', '부모님',
   ], multi: false),
 ];
@@ -164,78 +165,137 @@ class _AccountScreenState extends State<AccountScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 다른 기능 화면과 같은 골격: 메인 컬러 배경 + 흰색 라운드 시트.
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('계정 관리'),
-        actions: [
-          TextButton(
-            onPressed: _saving || _loading ? null : _save,
-            child: _saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('저장'),
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-              children: [
-                _accountHeader(),
-                const SizedBox(height: 8),
-                Text('AI가 더 잘 맞는 곳을 추천하도록, 취향을 알려주세요.',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant)),
-                const SizedBox(height: 8),
-                for (final c in _categories) _categoryBlock(c),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _saving ? null : _save,
-                    icon: const Icon(Icons.check),
-                    label: const Text('취향 저장'),
-                  ),
+      backgroundColor: AppColors.blue,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            _topBar(),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: const BoxDecoration(
+                  color: AppColors.base,
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(24)),
                 ),
-                const SizedBox(height: 16),
-                const Divider(),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.luggage_outlined),
-                  title: const Text('내 여행 관리'),
-                  subtitle: const Text('여행 선택 · 수정 · 삭제'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: widget.onManageTrips,
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.logout,
-                      color: Theme.of(context).colorScheme.error),
-                  title: Text('로그아웃',
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
-                  onTap: _logout,
-                ),
-              ],
+                clipBehavior: Clip.antiAlias,
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                        children: [
+                          _accountHeader(),
+                          const SizedBox(height: 8),
+                          Text('AI가 더 잘 맞는 곳을 추천하도록, 취향을 알려주세요.',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant)),
+                          const SizedBox(height: 8),
+                          for (final c in _categories) _categoryBlock(c),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.blue,
+                                foregroundColor: AppColors.base,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                              ),
+                              onPressed: _saving ? null : _save,
+                              child: const Text('취향 저장'),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Divider(),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('내 여행 관리'),
+                            subtitle: const Text('완료한 여행 기록 · 방문지 · 비용'),
+                            onTap: widget.onViewHistory,
+                          ),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('로그아웃',
+                                style: TextStyle(
+                                    color:
+                                        Theme.of(context).colorScheme.error)),
+                            onTap: _logout,
+                          ),
+                        ],
+                      ),
+              ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 상단 바 — 메인 컬러 위 흰 글씨. 아이콘 없이 텍스트 버튼만 쓴다.
+  Widget _topBar() {
+    return SizedBox(
+      height: 56,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            TextButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              style: TextButton.styleFrom(foregroundColor: AppColors.base),
+              child: const Text('뒤로'),
+            ),
+            const Expanded(
+              child: Text('계정 관리',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: AppColors.base,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700)),
+            ),
+            SizedBox(
+              width: 64,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _saving || _loading ? null : _save,
+                  style:
+                      TextButton.styleFrom(foregroundColor: AppColors.base),
+                  child: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: AppColors.base))
+                      : const Text('저장'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   /// 로그인한 계정 정보(이름·이메일) — 토큰 미주입 등으로 없으면 안내.
+  /// 아바타는 아이콘 대신 이름 첫 글자로 채운다.
   Widget _accountHeader() {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final acc = AuthService.instance.account;
     final name = acc?.displayName ?? '게스트';
     final email = acc?.email ?? '로그인 정보 없음';
+    final initial = name.trim().isNotEmpty ? name.trim()[0] : '?';
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 8),
@@ -243,8 +303,10 @@ class _AccountScreenState extends State<AccountScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: scheme.primary,
-          child: Icon(Icons.person, color: scheme.onPrimary),
+          backgroundColor: AppColors.blue,
+          child: Text(initial,
+              style: const TextStyle(
+                  color: AppColors.base, fontWeight: FontWeight.bold)),
         ),
         title: Text(name,
             style: theme.textTheme.titleMedium
@@ -255,6 +317,7 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   /// 카테고리 한 블록 — 제목 + 보기 칩들(복수=FilterChip, 단일=ChoiceChip).
+  /// 선택된 칩은 메인 컬러로 채우고, 체크마크(아이콘)는 끈다.
   Widget _categoryBlock(_Category c) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -266,8 +329,6 @@ class _AccountScreenState extends State<AccountScreen> {
         children: [
           Row(
             children: [
-              Icon(c.icon, size: 18, color: scheme.primary),
-              const SizedBox(width: 8),
               Text(c.title,
                   style: theme.textTheme.titleSmall
                       ?.copyWith(fontWeight: FontWeight.bold)),
@@ -283,21 +344,35 @@ class _AccountScreenState extends State<AccountScreen> {
             runSpacing: 4,
             children: [
               for (final opt in c.options)
-                c.multi
-                    ? FilterChip(
-                        label: Text(opt),
-                        selected: selected.contains(opt),
-                        onSelected: (_) => _toggle(c, opt),
-                      )
-                    : ChoiceChip(
-                        label: Text(opt),
-                        selected: selected.contains(opt),
-                        onSelected: (_) => _toggle(c, opt),
-                      ),
+                _optionChip(c, opt, selected.contains(opt)),
             ],
           ),
         ],
       ),
+    );
+  }
+
+  /// 보기 칩 하나 — 선택 시 메인 컬러 배경 + 흰 글씨. 체크마크 아이콘은 없앤다.
+  Widget _optionChip(_Category c, String opt, bool sel) {
+    final labelStyle = TextStyle(
+        color: sel ? AppColors.base : null,
+        fontWeight: sel ? FontWeight.w600 : FontWeight.normal);
+    if (c.multi) {
+      return FilterChip(
+        label: Text(opt),
+        labelStyle: labelStyle,
+        selected: sel,
+        showCheckmark: false,
+        selectedColor: AppColors.blue,
+        onSelected: (_) => _toggle(c, opt),
+      );
+    }
+    return ChoiceChip(
+      label: Text(opt),
+      labelStyle: labelStyle,
+      selected: sel,
+      selectedColor: AppColors.blue,
+      onSelected: (_) => _toggle(c, opt),
     );
   }
 }

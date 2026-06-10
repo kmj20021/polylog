@@ -10,6 +10,7 @@ import '../receipt/receipt_screen.dart';
 import '../recommend/recommend_screen.dart';
 import '../schedule/plans_screen.dart';
 import '../trips/trip.dart';
+import '../trips/trip_history_screen.dart';
 import '../trips/trips_screen.dart';
 import 'my_trip_home.dart';
 
@@ -93,10 +94,17 @@ class _MainShellState extends State<MainShell> {
   Future<void> _openAccount() async {
     setState(() => _menuOpen = false);
     await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => AccountScreen(onManageTrips: _openTripManager),
+      builder: (_) => AccountScreen(onViewHistory: _openTripHistory),
     ));
     if (!mounted) return;
     await _reloadAndAutoSelect();
+  }
+
+  /// '내 여행 관리' — 완료한 여행들의 기록(방문지·총비용·일별비용)을 보는 화면(읽기 전용).
+  Future<void> _openTripHistory() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const TripHistoryScreen(),
+    ));
   }
 
   /// '내 여행 관리'(TripsScreen) — 여행 선택(현재 여행 전환)·수정·삭제. 계정 관리
