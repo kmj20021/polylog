@@ -11,7 +11,6 @@ import '../recommend/recommend_screen.dart';
 import '../schedule/plans_screen.dart';
 import '../trips/trip.dart';
 import '../trips/trip_history_screen.dart';
-import '../trips/trips_screen.dart';
 import 'my_trip_home.dart';
 
 /// 앱의 메인 셸 — 레퍼런스(docs/ref-image/main.jpg) 구조.
@@ -105,23 +104,6 @@ class _MainShellState extends State<MainShell> {
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => const TripHistoryScreen(),
     ));
-  }
-
-  /// '내 여행 관리'(TripsScreen) — 여행 선택(현재 여행 전환)·수정·삭제. 계정 관리
-  /// 화면과 '여행 없음' 안내에서 공유한다. 여행을 탭하면 현재 여행으로 바뀐다.
-  Future<void> _openTripManager() async {
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => TripsScreen(
-        currentTripId: _current?.tripId,
-        onSelect: (t) => setState(() {
-          _current = t;
-          _selectedDay = t.defaultDayYmd();
-        }),
-        onChanged: _reloadAndAutoSelect,
-      ),
-    ));
-    if (!mounted) return;
-    await _reloadAndAutoSelect();
   }
 
   /// 우측 로고 메뉴에서 기능을 골랐을 때 — 그 화면을 현재 여행으로 연다(push).
@@ -262,23 +244,17 @@ class _MainShellState extends State<MainShell> {
           children: [
             const Icon(Icons.luggage_outlined, size: 64, color: AppColors.base),
             const SizedBox(height: 16),
-            const Text('선택된 여행이 없어요',
+            const Text('떠날 날을 기다리는 중이에요',
                 style: TextStyle(
                     color: AppColors.base,
                     fontSize: 18,
                     fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Text(
-              '"내 여행 관리"에서 여행을 고르거나 새로 만들어 보세요.\n'
-              '(여행 기간에 오늘이 들면 자동으로 선택됩니다.)',
+              '여행이 시작되는 그날,\n설레는 오늘의 일정이 이곳에서 당신을 기다릴 거예요.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.base.withValues(alpha: 0.85)),
-            ),
-            const SizedBox(height: 20),
-            FilledButton.tonalIcon(
-              onPressed: _openTripManager,
-              icon: const Icon(Icons.luggage_outlined),
-              label: const Text('여행 고르기'),
+              style: TextStyle(
+                  color: AppColors.base.withValues(alpha: 0.85), height: 1.5),
             ),
           ],
         ),

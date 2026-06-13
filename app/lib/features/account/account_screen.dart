@@ -186,7 +186,8 @@ class _AccountScreenState extends State<AccountScreen> {
                 child: _loading
                     ? const Center(child: CircularProgressIndicator())
                     : ListView(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                        padding: EdgeInsets.fromLTRB(
+                            20, 20, 20, 32 + MediaQuery.of(context).padding.bottom),
                         children: [
                           _accountHeader(),
                           const SizedBox(height: 8),
@@ -251,7 +252,9 @@ class _AccountScreenState extends State<AccountScreen> {
             TextButton(
               onPressed: () => Navigator.of(context).maybePop(),
               style: TextButton.styleFrom(foregroundColor: AppColors.base),
-              child: const Text('뒤로'),
+              child: const Text('<',
+                  style:
+                      TextStyle(fontSize: 26, fontWeight: FontWeight.w600)),
             ),
             const Expanded(
               child: Text('계정 관리',

@@ -14,6 +14,11 @@
 | 일자 | 버전 | 변경 내용 |
 |---|---|---|
 | 2026-05-25 | 2.0 | v2.0 기획서 기반 전면 재작성 — Main+Sub 구조, AWS AI 3종, Flutter 기반 |
+| 2026-06-01 | 2.0.1 | 플랫폼 Android 전용 확정, 인증 provider Google 단독(Kakao 보류) — ADR-003·ADR-007 갱신 반영 |
+| 2026-06-06 | 2.0.2 | Lambda 6종→7종 — 대화형 플래너 `fn-planner` 분리(ADR-017) |
+| 2026-06-07 | 2.0.3 | **AWS AI 실사용 = Bedrock 단독** — 메뉴·영수증 OCR을 Textract→Bedrock 비전으로 전환, Translate 철회(ADR-016). 인증 검증 JWKS→Google tokeninfo(ADR-007 갱신) |
+| 2026-06-13 | 2.0.5 | **메뉴 번역, 「구글 렌즈」 위임으로 단일화**(ADR-018, 2026-06-07 코드 결정의 사후 기록) — FR-S1 인앱 비전 분석 철회, FR-S1.3/S1.4 폐지. `fn-menu`/`POST /menu`는 미사용. §3.1 TR-AI1·§6 LF-3·§7 추적성 갱신 |
+| 2026-06-13 | 2.0.4 | §8.4 「위험 실현 결과(사후 회고)」 추가 — §8.1~8.3 위험표는 착수 전 기록으로 보존하고, 실현된 위험과 대응을 ADR로 추적 |
 
 ---
 
@@ -39,18 +44,19 @@
 
 ### FR-S1: 서브1 — 메뉴판 번역
 
+> ⚠️ **구현 결정 변경 (ADR-018, 2026-06-07)**: 인앱 비전 분석(추출·번역·추천)을 **폐지**하고 메뉴 번역을 **「구글 렌즈」에 위임**한다. 작은 비전 모델 1콜의 품질 불안정 + 알레르기 추정 불가 + 환경 제약이 이유. 아래 표는 현행(렌즈 위임) 기준이며, ~~취소선~~은 인앱 구현이 철회된 항목(원안은 ADR-016 이력으로 보존). `fn-menu`는 미사용.
+
 | ID | 요구사항 | 우선순위 | 관련 서비스 |
 |---|---|---|---|
-| FR-S1.1 | 메뉴판 사진 촬영 후 텍스트를 추출한다 | 필수 | Textract (DetectDocumentText) |
-| FR-S1.2 | 외국어 메뉴를 한국어로 번역한다 | 필수 | Translate |
-| FR-S1.3 | 사용자 선호도·알레르기 기반 추천 메뉴를 제시한다 | 필수 | Bedrock |
-| FR-S1.4 | 메뉴별 간단한 설명을 제공한다 | 선택 | Bedrock |
+| FR-S1.1 | 메뉴판을 카메라로 비추면 실시간 번역을 제공한다 | 필수 | **구글 렌즈** (외부 앱 위임, ADR-018) |
+| FR-S1.2 | 라틴·비라틴(CJK 등) 모든 언어를 안정적으로 번역한다 | 필수 | **구글 렌즈** |
+| ~~FR-S1.3~~ | ~~사용자 선호도·알레르기 기반 추천 메뉴를 제시한다~~ | ~~필수~~ → 철회 | (사진에 알레르기 정보 없어 추측 불가 — ADR-018) |
+| ~~FR-S1.4~~ | ~~메뉴별 간단한 설명을 제공한다~~ | ~~선택~~ → 철회 | (렌즈 위임으로 미제공, ADR-018) |
 
 **수용 기준**
-- 메뉴판 텍스트 추출 정확도 90% 이상 (명확한 인쇄물 기준)
-- 알레르기 유발 가능 메뉴 필터링
-- 사진 품질 불량 시 재촬영 가이드라인(프레임 오버레이) 표시
-- 응답 시간 6초 이내
+- 메뉴 화면의 「구글 렌즈 열기」 버튼으로 **선택창 없이 렌즈가 즉시 실행**(네이티브 채널 `polylog/lens`)
+- 라틴·CJK 가리지 않고 렌즈 실시간 카메라 번역으로 해독 가능
+- 구글 렌즈 미설치 시 플레이스토어 설치 페이지로 폴백 안내
 
 ---
 
@@ -58,13 +64,13 @@
 
 | ID | 요구사항 | 우선순위 | 관련 서비스 |
 |---|---|---|---|
-| FR-S2.1 | 영수증 사진 촬영 시 금액·항목·날짜를 자동 추출한다 | 필수 | Textract (AnalyzeExpense) |
+| FR-S2.1 | 영수증 사진 촬영 시 금액·항목·날짜·통화를 자동 추출한다 | 필수 | Bedrock 비전 (ADR-016) |
 | FR-S2.2 | 지출을 카테고리(식사, 교통, 숙박, 쇼핑 등)로 자동 분류한다 | 필수 | Bedrock |
 | FR-S2.3 | 현지 통화를 원화로 자동 환산한다 | 필수 | ExchangeRate-API |
 | FR-S2.4 | 일별·카테고리별 지출 목록을 제공한다 | 필수 | DynamoDB |
 
 **수용 기준**
-- Textract 신뢰도 80% 미만 필드는 사용자 확인 요청
+- OCR(Bedrock 비전) 추출 결과는 사용자가 직접 보정(update) 가능
 - 카테고리 자동 분류 오류 시 수동 변경 가능
 - 환율은 실시간 조회 + 캐싱 적용
 - 응답 시간 4초 이내
@@ -115,7 +121,7 @@
 | NFR-S1 | 사진·영수증 파일 S3 SSE(Server-Side Encryption) 암호화 |
 | NFR-S2 | IAM 권한 격리 — 공용 실행 역할 `SafeRole-polylog` + `polylog` prefix·`group` 태그 기반 자원 격리 (함수별 역할 분리는 운영 단계 재검토, ADR-012) |
 | NFR-S3 | 소셜 OAuth(Google 단독) 기반 사용자 인증 — Flutter 클라이언트 직접 연동 (ADR-007, 2026-06-01 Kakao 보류) |
-| NFR-S4 | API Gateway Lambda Authorizer(`fn-authorizer`)로 소셜 ID 토큰을 provider JWKS 검증, 인증된 요청만 허용 |
+| NFR-S4 | API Gateway Lambda Authorizer(`fn-authorizer`)로 Google ID 토큰을 Google tokeninfo 엔드포인트로 검증, 인증된 요청만 허용 (ADR-007 2026-06-07 갱신 — 의존성 0) |
 
 ### 2.4 사용성 (Usability)
 
@@ -145,19 +151,21 @@
 
 ## 3. 기술 요구사항 (Technical Requirements)
 
-### 3.1 AWS AI 서비스 (3종)
+### 3.1 AWS AI 서비스 (실사용 Bedrock 단독 — 원안 3종에서 Textract·Translate 철회, ADR-016)
 
 | ID | 서비스 | 용도 | 사용 API | 사용 기능 |
 |---|---|---|---|---|
-| TR-AI1 | Amazon Bedrock (Claude) | 자연어 생성, 분석, 추천, 대화 | InvokeModel | 메인, 서브1, 서브2, 서브3 |
-| TR-AI2 | Amazon Textract | 문서/영수증 OCR | DetectDocumentText, AnalyzeExpense | 서브1(메뉴판), 서브2(영수증) |
-| TR-AI3 | Amazon Translate | 텍스트 번역 | TranslateText | 서브1(메뉴판 번역) |
+| TR-AI1 | Amazon Bedrock (Claude Haiku·Sonnet) | 자연어 생성·분석·추천·대화 + **비전 OCR**(영수증 사진 직접 판독) | InvokeModel | 메인, 서브2, 서브3 (서브1 메뉴는 구글 렌즈 위임 — ADR-018) |
+| ~~TR-AI2~~ | ~~Amazon Textract~~ | **철회** — DetectDocumentText/AnalyzeExpense가 한글·일본어(CJK) 미인식 → Bedrock 비전으로 대체 (ADR-016) | — | — |
+| ~~TR-AI3~~ | ~~Amazon Translate~~ | **철회** — Bedrock가 OCR과 번역을 1콜로 동시 처리 (ADR-016) | — | — |
+
+> 원안의 "3종 깊이 우선"(ADR-005)은 실제 구현에서 **Bedrock 단독으로 더욱 압축**됐다 — 단일 서비스를 텍스트 추론 + 비전 + 대화 패턴으로 깊이 활용. 단, **메뉴 번역은 Bedrock 비전마저 품질 불안정으로 「구글 렌즈」에 위임**(ADR-018)했으므로, Bedrock 비전 OCR의 실사용 범위는 **영수증**이다. 시행착오 상세는 ADR-016·ADR-018.
 
 ### 3.2 AWS 인프라 서비스
 
 | ID | 서비스 | 용도 |
 |---|---|---|
-| TR-INF1 | AWS Lambda | 서버리스 백엔드 함수 실행 (6종: 핵심 5 + 인가 `fn-authorizer` 1) |
+| TR-INF1 | AWS Lambda | 서버리스 백엔드 함수 실행 (7종: 핵심 6 + 인가 `fn-authorizer` 1 — `fn-planner` 분리, ADR-017) |
 | TR-INF2 | Amazon API Gateway | REST API 엔드포인트 + Lambda Authorizer 인가 |
 | TR-INF3 | Amazon S3 | 사진·영수증 미디어 저장 (`polylog` prefix 버킷) |
 | TR-INF4 | Amazon DynamoDB | 구조화 데이터 저장 (`polylog` prefix 테이블) |
@@ -230,7 +238,7 @@ Trip (1) ── (N) ChatMessage
 
 | 유형 | S3 경로 | 암호화 | 비고 |
 |---|---|---|---|
-| 메뉴판 사진 | photos/ | SSE-S3 | S3 Presigned URL 조회 (CloudFront 미사용, ADR-008) |
+| 메뉴판 사진 | menus/ | SSE-S3 | S3 Presigned URL 조회 (CloudFront 미사용, ADR-008) |
 | 영수증 이미지 | receipts/ | SSE-S3 | S3 Presigned URL 조회 |
 
 ---
@@ -239,7 +247,7 @@ Trip (1) ── (N) ChatMessage
 
 | ID | 분류 | 제약 내용 |
 |---|---|---|
-| CON-1 | 플랫폼 | Flutter 크로스 플랫폼: Android + iOS 동시 지원 |
+| CON-1 | 플랫폼 | Flutter — **Android 전용**(`--platforms=android`). iOS는 4주 PoC·1인 범위 밖으로 보류 (ADR-003 2026-06-01 갱신) |
 | CON-2 | 목적 | 개인 학습 프로젝트 — 상용 출시 아닌 포트폴리오 목적 |
 | CON-3 | 리전 | AWS 서울 리전 우선, Bedrock은 가용 리전(us-east-1) 사용 |
 | CON-4 | 비용 | 무료 티어 적극 활용, 월 $20 이하 유지 |
@@ -256,18 +264,19 @@ Trip (1) ── (N) ChatMessage
 |---|---|---|---|---|---|---|
 | LF-1 | fn-health | 헬스체크 | API Gateway | <1초 | — | — |
 | LF-2 | fn-recommend | AI 장소 추천 | API Gateway | 3~5초 | Bedrock | Google Places |
-| LF-3 | fn-menu | 메뉴판 OCR + 번역 + 추천 | API Gateway | 4~6초 | Textract, Translate, Bedrock | — |
-| LF-4 | fn-receipt | 영수증 OCR + 가계부 | API Gateway | 3~4초 | Textract, Bedrock | ExchangeRate-API |
-| LF-5 | fn-schedule | 대화형 일정 관리 | API Gateway | 2~4초 | Bedrock | Google Places |
-| LF-6 | fn-authorizer | 소셜 OAuth ID 토큰 JWKS 검증 (무상태) | API Gateway Authorizer | <1초 | — | Google JWKS |
+| ~~LF-3~~ | ~~fn-menu~~ | ~~메뉴판 비전 OCR + 번역 + 추천~~ → **미사용**(메뉴는 구글 렌즈 위임, ADR-018) | API Gateway | — | — | — |
+| LF-4 | fn-receipt | 영수증 비전 OCR + 가계부 | API Gateway | 3~4초 | Bedrock 비전 | ExchangeRate-API |
+| LF-5 | fn-schedule | 일정 CRUD + 여행 CRUD | API Gateway | 2~4초 | Bedrock | Google Places |
+| LF-6 | fn-authorizer | Google ID 토큰 tokeninfo 검증 (무상태) | API Gateway Authorizer | <1초 | — | Google tokeninfo |
+| LF-7 | fn-planner | 대화형 일정 플래너 (fn-schedule에서 분리, ADR-017) | API Gateway | ~30초 | Bedrock (Haiku·Sonnet) | Google Places |
 
 ### IAM 실행 역할 (공용 SafeRole-polylog)
 
 | 역할 | 적용 함수 | 포함 권한 |
 |---|---|---|
-| **SafeRole-polylog** (공용, 관리자 사전 생성) | fn-* 전체 (6종) | `bedrock:InvokeModel`(us-east-1), `textract:*`, `translate:TranslateText`, `dynamodb:*`(polylog*), `s3:*`(polylog*), CloudWatch Logs |
+| **SafeRole-polylog** (공용, 관리자 사전 생성) | fn-* 전체 (7종) | `bedrock:InvokeModel`(us-east-1), `dynamodb:*`(polylog*), `s3:*`(polylog*), CloudWatch Logs (textract·translate 권한은 역할에 포함되나 ADR-016 이후 미사용) |
 
-> `iam:CreateRole` 차단으로 함수별 역할 분리 불가 → 단일 공용 역할 + `polylog` prefix·`group` 태그 격리(ADR-012). SAM `Globals.Function.Role`로 일괄 지정. 함수별 최소권한 분리는 운영 단계 재검토. `fn-authorizer`는 외부 JWKS 조회·토큰 검증만 하므로 추가 AWS 권한 불필요.
+> `iam:CreateRole` 차단으로 함수별 역할 분리 불가 → 단일 공용 역할 + `polylog` prefix·`group` 태그 격리(ADR-012). SAM `Globals.Function.Role`로 일괄 지정. 함수별 최소권한 분리는 운영 단계 재검토. `fn-authorizer`는 외부 Google tokeninfo 조회·토큰 검증만 하므로 추가 AWS 권한 불필요.
 
 ---
 
@@ -276,9 +285,9 @@ Trip (1) ── (N) ChatMessage
 | 기능 요구사항 | Lambda 함수 | Use Case | 데이터 엔티티 | AWS AI 서비스 |
 |---|---|---|---|---|
 | FR-M (AI 장소 추천) | fn-recommend | UC-1 | Recommendation, Place | Bedrock |
-| FR-S1 (메뉴판 번역) | fn-menu | UC-2 | Menu, MenuItem | Textract, Translate, Bedrock |
-| FR-S2 (영수증 기록) | fn-receipt | UC-3 | Expense | Textract, Bedrock |
-| FR-S3 (AI 일정 관리) | fn-schedule | UC-4 | Schedule, ChatMessage | Bedrock |
+| FR-S1 (메뉴판 번역) | ~~fn-menu~~ (미사용) | UC-2 | — | **구글 렌즈** (외부 앱 위임, ADR-018) |
+| FR-S2 (영수증 기록) | fn-receipt | UC-3 | Expense | Bedrock 비전 |
+| FR-S3 (AI 일정 관리) | fn-schedule, fn-planner | UC-4 | Schedule, ChatMessage | Bedrock (Haiku·Sonnet) |
 
 ---
 
@@ -370,3 +379,23 @@ Trip (1) ── (N) ChatMessage
 | FR-S3 AI 일정 관리 | Flutter Widgets | Google Places, Bedrock | 프롬프트, 대화 컨텍스트 관리 | **상** |
 | 인증 | google_sign_in | 소셜 OAuth(Google) + Lambda Authorizer | 토큰 검증 코드 | **중** |
 | 인프라 | SAM | IAM, S3, DynamoDB | IaC 템플릿 | **중** |
+
+> ⚠️ **§8.1~8.3은 개발 착수 전(2026-05-25) 위험 식별 시점의 기록**이다. 일부 위험이 실제로 실현되어 기술 선택이 바뀌었으며, 그 결과는 아래 §8.4로 추적한다(원 표는 회고 비교를 위해 보존).
+
+---
+
+### 8.4 위험 실현 결과 (사후 회고 — 2026-06-13 기준)
+
+> 식별했던 위험 중 실제로 실현되어 설계가 바뀐 항목과, 그 대응 결과를 ADR로 추적한다. "위험 식별 → 실현 → 대응 → ADR 기록"의 시행착오 루프가 본 프로젝트의 핵심 학습 성과다.
+
+| 원 위험 | 실현 여부 | 실제 결과 및 대응 | 근거 ADR |
+|---|---|---|---|
+| RISK-API2 Textract DetectDocumentText (메뉴판) | **실현 → 2차 전환** | Textract CJK 실패 → Bedrock 비전 1콜로 전환(ADR-016)했으나, **같은 날 오후 검증에서 작은 비전 모델 1콜의 번역 품질이 불안정**해 메뉴 번역을 **「구글 렌즈」로 위임**(인앱 분석 폐지). `fn-menu` 미사용화 | ADR-016 → **ADR-018** |
+| RISK-API3 Textract AnalyzeExpense (영수증) | **실현** | 한국 영수증의 한글 미인식으로 동일 실패 → **Bedrock 비전으로 통일**(통화기호 포함 직접 판독) | ADR-016 |
+| RISK-API4 Translate | **회피(철회)** | Bedrock가 OCR과 번역을 1콜로 처리 → Translate **불필요로 철회** | ADR-016 |
+| RISK-API7 Lambda Authorizer (JWKS 검증) | **부분 실현** | 로컬 RS256 JWKS 검증은 `PyJWT`+`cryptography` 번들 필요 → "의존성 0" 원칙 충돌 → **Google tokeninfo 위임으로 단일화**(urllib GET 1회). 단위테스트 8 passed | ADR-007 (2026-06-07) |
+| RISK-API1 Bedrock (위험 등급 "상") | **완화 성공** | 독립 PoC 스크립트로 선검증 후 Lambda 통합 — 4개 기능 + 비전 OCR + 대화까지 단일 서비스로 확대 활용 | ADR-004·005·016 |
+| RISK-AI5 발표 질의응답 (설명 가능성) | **대응 완료** | 모든 핵심 로직을 ADR로 문서화 → 결정·시행착오를 ADR 기준으로 답변 가능하도록 준비 | ADR 전반 |
+| 일정 복잡도 (대화형 플래너) | **신규 발생** | 대화형 플래너가 Bedrock 2콜(Haiku+Sonnet)+Places로 무거워(최대 ~30초) CRUD와 충돌 → **`fn-planner`로 분리**(타임아웃·고장 격리) | ADR-017 |
+
+> **순 결과**: 식별한 미경험 API 6종 중 Textract·Translate 2종은 실제 검증에서 탈락하고, **AWS AI 실사용은 Bedrock 단독**으로 압축됐다(§3.1, ADR-016). 나아가 **메뉴 번역은 Bedrock 비전조차 품질이 불안정**해 검증된 외부 도구(구글 렌즈)로 위임했다(ADR-018) — "직접 만들기 vs 위임"의 판단 사례. 위험 식별이 헛되지 않고 "왜 이 기술을 버렸는가"를 설명할 수 있는 근거가 됐다.

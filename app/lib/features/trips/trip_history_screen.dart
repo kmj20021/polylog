@@ -116,7 +116,8 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        padding: EdgeInsets.fromLTRB(
+            16, 16, 16, 24 + MediaQuery.of(context).padding.bottom),
         itemCount: _completed.length,
         itemBuilder: (context, i) => _TripRow(
           trip: _completed[i],
@@ -293,7 +294,8 @@ class _TripRecordScreenState extends State<_TripRecordScreen> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        padding: EdgeInsets.fromLTRB(
+            20, 20, 20, 32 + MediaQuery.of(context).padding.bottom),
         children: [
           Text(widget.trip.dateRangeLabel,
               style: theme.textTheme.bodyMedium
@@ -462,7 +464,9 @@ class _TopBar extends StatelessWidget {
             TextButton(
               onPressed: onBack,
               style: TextButton.styleFrom(foregroundColor: AppColors.base),
-              child: const Text('뒤로'),
+              child: const Text('<',
+                  style:
+                      TextStyle(fontSize: 26, fontWeight: FontWeight.w600)),
             ),
             Expanded(
               child: Text(title,

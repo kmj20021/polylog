@@ -57,62 +57,73 @@ class MenuScreen extends StatelessWidget {
                       BorderRadius.vertical(top: Radius.circular(24)),
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: Center(
-                  // 포인트 연두 동그라미로 안내 전체를 감싼다(패널 폭에 맞춘 큰 원).
-                  child: LayoutBuilder(
-                    builder: (context, c) {
-                      final d = c.biggest.shortestSide;
-                      const padFrac = 0.09;
-                      final inner = d * (1 - padFrac * 2); // 원 안 가용 폭
-                      return Container(
-                        width: d,
-                        height: d,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.green,
-                        ),
-                        padding: EdgeInsets.all(d * padFrac),
-                        child: Center(
-                          child: SingleChildScrollView(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.translate_outlined,
-                                    size: 56, color: scheme.primary),
-                                const SizedBox(height: 14),
-                                // 제목은 한 줄로 — 폭에 맞춰 자동 축소.
-                                SizedBox(
-                                  width: inner,
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text('메뉴판은 구글 렌즈로 번역하기',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleLarge
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold)),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
+                  child: Column(
+                    children: [
+                      // 상단 헤더 — 비어 보이던 윗공간을 안내로 채운다.
+                      Text('메뉴판, 사진으로 번역하기',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 10),
+                      Text(
+                        '낯선 나라의 메뉴판도 걱정 마세요.\n'
+                        '카메라로 비추면 모든 언어를 실시간으로 한국어로 바꿔드려요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color: scheme.onSurfaceVariant, height: 1.5),
+                      ),
+                      const SizedBox(height: 24),
+                      // 포인트 연두 동그라미 — 헤더 바로 아래에 붙인다(위쪽 정렬).
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: LayoutBuilder(
+                            builder: (context, c) {
+                              final d = c.biggest.shortestSide;
+                              const padFrac = 0.1;
+                              return Container(
+                                width: d,
+                                height: d,
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: AppColors.green,
+                                ),
+                                padding: EdgeInsets.all(d * padFrac),
+                                child: Center(
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.translate_outlined,
+                                            size: 64, color: scheme.primary),
+                                        const SizedBox(height: 16),
+                                        Text(
+                                          "궁금한 글자를 눌러 '번역'을 누르면 돼요.",
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                              color: scheme.onSurface,
+                                              height: 1.4),
+                                        ),
+                                        const SizedBox(height: 20),
+                                        FilledButton.icon(
+                                          onPressed: () => _openLens(context),
+                                          icon: const Icon(Icons.search),
+                                          label: const Text('구글 렌즈 열기'),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  "앱을 열고 카메라로 메뉴판을 찍으면 모든 언어를 실시간으로 "
-                                  "한국어 번역이 가능해요!\n궁금한 글자를 눌러 '번역'을 눌러주세요.",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                      color: scheme.onSurface, height: 1.4),
-                                ),
-                                const SizedBox(height: 20),
-                                FilledButton.icon(
-                                  onPressed: () => _openLens(context),
-                                  icon: const Icon(Icons.search),
-                                  label: const Text('구글 렌즈 열기'),
-                                ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
                 ),
               ),
