@@ -305,59 +305,26 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   /// 추천에 없는 일정을 손으로 직접 넣는다(예: '공항 출발', '호텔 체크인').
   /// 장소가 아닌 메모성 일정이라 place_id 없이 place_name(내용)·time_label(시간)만
   /// 저장한다 — 지금 고른 날짜(_plannerDay)에 붙는다.
+  ///
+  /// 입력 다이얼로그는 [_ManualScheduleDialog](StatefulWidget)에 맡긴다 — 입력
+  /// 컨트롤러를 그 위젯이 소유해, 다이얼로그가 사라질 때 컨트롤러도 같은 타이밍에
+  /// 정리되게 하기 위함(여기서 직접 만들어 `await` 뒤에 dispose 하면, autofocus 입력창이
+  /// 아직 정리 중일 때 버려진 컨트롤러를 참조해 '_dependents.isEmpty' 오류가 났었다).
   Future<void> _addManual() async {
-    final textCtrl = TextEditingController();
-    final timeCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
+    final result = await showDialog<({String name, String time})>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('직접 일정 작성'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: textCtrl,
-              autofocus: true,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: '일정 내용',
-                hintText: '예) 공항 출발',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: timeCtrl,
-              decoration: const InputDecoration(
-                labelText: '시간(선택)',
-                hintText: '예) 09:00',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('취소')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('추가')),
-        ],
-      ),
+      builder: (_) => const _ManualScheduleDialog(),
     );
-    final name = textCtrl.text.trim();
-    final time = timeCtrl.text.trim();
-    textCtrl.dispose();
-    timeCtrl.dispose();
-    if (ok != true || name.isEmpty || !mounted) return;
+    if (result == null || result.name.isEmpty || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
       await DioClient().post<Map<String, dynamic>>(
         '/schedule',
         data: {
           'trip_id': widget.tripId,
-          'place_name': name,
+          'place_name': result.name,
           if (_plannerDay.isNotEmpty) 'day': _plannerDay,
-          if (time.isNotEmpty) 'time_label': time,
+          if (result.time.isNotEmpty) 'time_label': result.time,
         },
       );
       await _load();
@@ -1036,6 +1003,77 @@ class _MessageView extends StatelessWidget {
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// '직접 일정 작성' 입력 다이얼로그.
+///
+/// 입력 컨트롤러를 **이 위젯의 State 가 소유**한다 — 그래야 다이얼로그가 트리에서
+/// 사라질 때(unmount) [dispose] 에서 컨트롤러도 같은 타이밍에 정리돼, autofocus 입력창과
+/// 컨트롤러의 생명주기가 어긋나지 않는다. (호출부에서 컨트롤러를 만들어 `await showDialog`
+/// 뒤에 dispose 하면, 입력창이 아직 닫히는 중일 때 버려진 컨트롤러를 참조해
+/// `_dependents.isEmpty`/`disposed ChangeNotifier` 오류가 났다.)
+///
+/// 결과는 `Navigator.pop` 으로 `(name, time)` 레코드를 돌려준다(취소 시 null).
+class _ManualScheduleDialog extends StatefulWidget {
+  const _ManualScheduleDialog();
+
+  @override
+  State<_ManualScheduleDialog> createState() => _ManualScheduleDialogState();
+}
+
+class _ManualScheduleDialogState extends State<_ManualScheduleDialog> {
+  final _textCtrl = TextEditingController();
+  final _timeCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _textCtrl.dispose();
+    _timeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    Navigator.pop(
+      context,
+      (name: _textCtrl.text.trim(), time: _timeCtrl.text.trim()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('직접 일정 작성'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _textCtrl,
+            autofocus: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: '일정 내용',
+              hintText: '예) 공항 출발',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _timeCtrl,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            decoration: const InputDecoration(
+              labelText: '시간(선택)',
+              hintText: '예) 09:00',
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        FilledButton(onPressed: _submit, child: const Text('추가')),
       ],
     );
   }

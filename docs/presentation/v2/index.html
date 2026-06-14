@@ -211,121 +211,33 @@ flowchart TD
       </div>
     </section>
 
-    <!-- 9. WBS ① 구조 개요 + 통계 -->
+    <!-- 9. WBS — 구조 + 마일스톤 + 통계 (기존 4페이지 → 1페이지 통합) -->
     <section>
       <div class="panel">
-        <span class="kicker">WBS · 1/4 구조</span>
-        <h2>작업 분해 구조 (WBS)</h2>
+        <span class="kicker">WBS · 진행</span>
+        <h2>작업 분해 &amp; 3주 마일스톤</h2>
         <div class="wtree">1.0 <b>Polylog</b>
- ├─ 1.1 프로젝트 관리            ├─ 1.6 서브2: 영수증 기록 (FR-S2/UC-3)
- ├─ 1.2 AWS 기반 환경 구축       ├─ 1.7 서브3: AI 일정 관리 (FR-S3/UC-4)
+ ├─ 1.1 프로젝트 관리            ├─ 1.6 서브2: 영수증 기록
+ ├─ 1.2 AWS 기반 환경 구축       ├─ 1.7 서브3: AI 일정 관리
  ├─ 1.3 Flutter 앱 기반 구축     ├─ 1.8 통합 테스트 및 최적화
  ├─ 1.4 메인: AI 장소 추천       └─ 1.9 마무리 및 포트폴리오
- ├─ 1.5 서브1: 메뉴판 번역 (FR-S1/UC-2)</div>
+ └─ 1.5 서브1: 메뉴판 번역</div>
+        <div class="timeline" style="margin-top:14px;">
+          <div class="tl done"><div class="wk">12주 · 05-25~31</div><div class="th">AWS 환경 + Flutter 기반 관통</div><span class="st">완료</span></div>
+          <div class="tl done"><div class="wk">13주 · 06-01~07</div><div class="th">첫 배포 + 메인·서브 4기능 + 로그인</div><span class="st">완료</span></div>
+          <div class="tl done"><div class="wk">14주 · 06-08~14</div><div class="th">인증 안정화 + 통합테스트 + 문서</div><span class="st">완료</span></div>
+          <div class="tl active"><div class="wk">15주 · 06-15~16</div><div class="th">최종 안정화 + 발표(06-16)</div><span class="st">발표</span></div>
+        </div>
         <div class="stats">
           <div class="stat"><div class="v">9 / 27 / 95</div><div class="l">작업 패키지 (L1 / L2 / L3)</div></div>
-          <div class="stat"><div class="v">7 종</div><div class="l">Lambda (배포 / 활성 6)</div></div>
-          <div class="stat"><div class="v">7 종</div><div class="l">DynamoDB 테이블</div></div>
-          <div class="stat"><div class="v">Bedrock</div><div class="l">AWS AI (단독 — 원안 3종)</div></div>
-          <div class="stat"><div class="v">2 종</div><div class="l">외부 API (Places · 환율)</div></div>
+          <div class="stat"><div class="v">7 종</div><div class="l">Lambda · DynamoDB (각 7종)</div></div>
           <div class="stat"><div class="v">0 대</div><div class="l">상시 서버 (서버리스)</div></div>
         </div>
-        <div class="foot">근거: docs/WBS/wbs.md — 기획서·요구사항 추적성 매핑(FR/UC) 포함</div>
+        <div class="foot">기능별 완료일·크리티컬 패스·리스크 대응은 docs/WBS/wbs.md — GitHub에서 실시간 확인</div>
       </div>
     </section>
 
-    <!-- 10. WBS ② 마일스톤 타임라인 -->
-    <section>
-      <div class="panel">
-        <span class="kicker">WBS · 2/4 마일스톤</span>
-        <h2>3주 마일스톤 (2026-05-25 ~ 06-16)</h2>
-        <div class="timeline">
-          <div class="tl done"><div class="wk">12주차 · 05-25~31</div><div class="th">AWS 환경 + Flutter 기반 + fn-health 관통</div><span class="st">완료</span></div>
-          <div class="tl done"><div class="wk">13주차 · 06-01~07</div><div class="th">첫 배포 + 메인 + 서브 3종 + 로그인 <br>(중간발표 06-02)</div><span class="st">완료</span></div>
-          <div class="tl done"><div class="wk">14주차 · 06-08~14</div><div class="th">인증 안정화 + 통합테스트 + 최적화 + 문서</div><span class="st">완료</span></div>
-          <div class="tl active"><div class="wk">15주차 · 06-15~16</div><div class="th">최종 안정화 + 발표 <br>(최종발표 06-16)</div><span class="st">발표</span></div>
-        </div>
-        <div class="legend">
-          <span><span class="dot done"></span>완료</span>
-          <span><span class="dot active"></span>발표</span>
-        </div>
-        <div class="pbars">
-          <div class="pbar"><span class="name">1.2 AWS 환경</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
-          <div class="pbar"><span class="name">1.3 Flutter 기반</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
-          <div class="pbar"><span class="name">1.4 메인 추천</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
-          <div class="pbar"><span class="name">1.5 메뉴(렌즈)</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
-          <div class="pbar"><span class="name">1.6 영수증</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
-          <div class="pbar"><span class="name">1.7 AI 일정</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
-          <div class="pbar"><span class="name">1.8 통합·최적화</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
-          <div class="pbar"><span class="name">1.9 문서·발표</span><span class="track"><span class="fill part" style="width:90%"></span></span><span class="pct">90%</span></div>
-        </div>
-        <div class="foot">주 5일 이상(주말 포함) · 주차별 6일 작업 (05-29 · 06-03 · 06-11 휴식)</div>
-      </div>
-    </section>
-
-    <!-- 11. WBS ③ 기능별 완료 실적 ★ (확대) -->
-    <section>
-      <div class="panel">
-        <span class="kicker">WBS · 3/4 완료 실적</span>
-        <h2>기능별 완료일 (실적)<span class="key-badge">핵심</span></h2>
-        <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span>
-        <table>
-          <thead><tr><th class="c">WBS</th><th>기능 / 작업</th><th class="c">완료일</th><th class="c">요일</th></tr></thead>
-          <tbody>
-            <tr><td class="c">1.1</td><td>기획서·요구사항·WBS 확정</td><td class="c">05-25</td><td class="c">월</td></tr>
-            <tr><td class="c">1.2.2~4</td><td>AWS 환경 (S3·DynamoDB·API GW·SAM)</td><td class="c">05-26</td><td class="c">화</td></tr>
-            <tr><td class="c">1.2.1</td><td>IAM 수령·SafeRole 적용·격리규약</td><td class="c">05-27</td><td class="c">수</td></tr>
-            <tr><td class="c">1.3.1</td><td>Flutter 초기화·feature 구조</td><td class="c">05-28</td><td class="c">목</td></tr>
-            <tr><td class="c">1.3.2~3</td><td>공통 UI·4탭 네비·로그인 화면</td><td class="c">05-30</td><td class="c">토</td></tr>
-            <tr><td class="c">1.2.4.2</td><td>fn-health 배포 + API GW 관통</td><td class="c">05-31</td><td class="c">일</td></tr>
-            <tr><td class="c">1.3/1.4</td><td>첫 SAM 배포 + 메인 추천 E2E 관통</td><td class="c">06-01</td><td class="c">월</td></tr>
-            <tr><td class="c">1.4.1</td><td>fn-recommend 연동 <em>(중간발표)</em></td><td class="c">06-02</td><td class="c">화</td></tr>
-            <tr class="hi"><td class="c">1.4</td><td>메인: AI 장소 추천 완성</td><td class="c">06-04</td><td class="c">목</td></tr>
-            <tr class="hi"><td class="c">1.7</td><td>서브3: AI 일정 관리 완성</td><td class="c">06-05</td><td class="c">금</td></tr>
-            <tr class="hi"><td class="c">1.5</td><td>서브1: 메뉴판 번역 완성</td><td class="c">06-06</td><td class="c">토</td></tr>
-            <tr class="hi"><td class="c">1.6</td><td>서브2: 영수증 기록 완성</td><td class="c">06-07</td><td class="c">일</td></tr>
-            <tr><td class="c">1.2.5/1.3.3</td><td>소셜 OAuth 인증 안정화</td><td class="c">06-08</td><td class="c">월</td></tr>
-            <tr><td class="c">1.8.1</td><td>4기능 통합(E2E) 시나리오 테스트</td><td class="c">06-09</td><td class="c">화</td></tr>
-            <tr><td class="c">1.3.2</td><td>UI 안정화 (설정·선호도·배치)</td><td class="c">06-10</td><td class="c">수</td></tr>
-            <tr><td class="c">1.8.4</td><td>성능·비용 최적화 (프롬프트 토큰↓)</td><td class="c">06-12</td><td class="c">금</td></tr>
-            <tr><td class="c">1.9.1</td><td>문서 정리 (README·ADR·setup/deploy/testing)</td><td class="c">06-13</td><td class="c">토</td></tr>
-            <tr><td class="c">1.9.2</td><td>데모·발표 자료·리허설</td><td class="c">06-14</td><td class="c">일</td></tr>
-            <tr class="hi"><td class="c">1.9.2</td><td><strong>최종 발표</strong></td><td class="c">06-16</td><td class="c">화</td></tr>
-          </tbody>
-        </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- 12. WBS ④ 크리티컬 패스 + 리스크 -->
-    <section>
-      <div class="panel">
-        <span class="kicker">WBS · 4/4 크리티컬 패스</span>
-        <h2>핵심 경로 &amp; 리스크 대응</h2>
-        <div style="font-size:0.62em;font-weight:700;color:var(--sub);margin-bottom:0.2em;">Bedrock 프롬프트 설계 = 전체 일정의 크리티컬 패스 (메인에서 패턴 확립 → 서브에서 재활용)</div>
-        <div class="cpath">
-          <span class="n">Bedrock 모델 액세스</span><span class="a">→</span>
-          <span class="n">메인 추천 프롬프트</span><span class="a">→</span>
-          <span class="n">품질 튜닝</span><span class="a">→</span>
-          <span class="n">서브 기능 재활용</span><span class="a">→</span>
-          <span class="n">대화형 일정(최난도)</span><span class="a">→</span>
-          <span class="n">통합 테스트</span><span class="a">→</span>
-          <span class="n">데모</span>
-        </div>
-        <table style="margin-top:14px;">
-          <thead><tr><th>구간</th><th>리스크</th><th class="c">영향</th><th>대응</th></tr></thead>
-          <tbody>
-            <tr><td>1.4 메인</td><td>Bedrock cross-region 지연(~200ms)</td><td class="c">하</td><td>프롬프트 토큰 최소화</td></tr>
-            <tr><td>1.5 메뉴</td><td>비정형 OCR 정확도</td><td class="c">중</td><td>인앱 분석 폐지 → 구글 렌즈 위임 (ADR-018)</td></tr>
-            <tr><td>1.7 일정</td><td>대화 컨텍스트 복잡도</td><td class="c">중</td><td>최근 10개 메시지로 윈도우 제한 · fn-planner 분리</td></tr>
-            <tr><td>인증</td><td>OAuth/토큰 검증 오류</td><td class="c">중</td><td>tokeninfo 위임 + 단위테스트 8 passed</td></tr>
-            <tr><td>배포</td><td>Access Key 미발급</td><td class="c">중</td><td>CloudShell sam deploy + PoC 스크립트 선검증</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- 13. 프로세스: 환경·배포·테스트·문서 -->
+    <!-- 10. 프로세스: 환경·배포·테스트·문서 -->
     <section>
       <div class="panel">
         <span class="kicker">PROCESS</span>
@@ -345,7 +257,7 @@ flowchart TD
       </div>
     </section>
 
-    <!-- 14. 활용 · 향후 · 나만의 기법 -->
+    <!-- 11. 활용 · 향후 · 나만의 기법 -->
     <section>
       <div class="panel center">
         <span class="kicker">WRAP-UP</span>
