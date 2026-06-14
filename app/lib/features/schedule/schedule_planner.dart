@@ -169,7 +169,6 @@ class _SchedulePlannerState extends State<SchedulePlanner> {
           'place_id': p.placeId,
           'place_name': p.placeName,
           if (widget.day.isNotEmpty) 'day': widget.day,
-          if (p.timeLabel.isNotEmpty) 'time_label': p.timeLabel,
           if (p.lat != null) 'latitude': p.lat,
           if (p.lng != null) 'longitude': p.lng,
           if (p.address.isNotEmpty) 'address': p.address,
@@ -219,8 +218,7 @@ class _SchedulePlannerState extends State<SchedulePlanner> {
             'place_id': p.placeId,
             'place_name': p.placeName,
             if (form.startDate.isNotEmpty) 'day': form.startDate,
-            if (p.timeLabel.isNotEmpty) 'time_label': p.timeLabel,
-            if (p.lat != null) 'latitude': p.lat,
+              if (p.lat != null) 'latitude': p.lat,
             if (p.lng != null) 'longitude': p.lng,
             if (p.address.isNotEmpty) 'address': p.address,
             if (p.rating != null) 'rating': p.rating,
@@ -522,22 +520,12 @@ class _ProposedCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    if (place.timeLabel.isNotEmpty) ...[
-                      Text(place.timeLabel,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                              color: scheme.primary,
-                              fontWeight: FontWeight.bold)),
-                      const SizedBox(width: 6),
-                    ],
-                    Expanded(
-                      child: Text(place.placeName,
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
+                // 방문 시각은 AI 가 임의로 정하지 않는다(미정으로 담기고, 시간은
+                // 사용자가 일정 화면의 '시간' 버튼으로 직접 지정). 그래서 제안 카드엔
+                // 시각을 표시하지 않는다.
+                Text(place.placeName,
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
                 if (place.rating != null)
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -597,13 +585,41 @@ class _Bubble extends StatelessWidget {
           color: fromUser ? scheme.primary : scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Text(text,
-            style: TextStyle(
-                color: fromUser ? scheme.onPrimary : scheme.onSurface,
-                height: 1.4)),
+        // Text.rich = 한 말풍선 안에서 글자마다 다른 스타일을 줄 수 있는 Text.
+        // 바깥 style(색·줄간격)은 모든 조각에 상속되고, **굵게** 구간만 weight를 덮는다.
+        child: Text.rich(
+          TextSpan(children: _markdownBoldSpans(text)),
+          style: TextStyle(
+              color: fromUser ? scheme.onPrimary : scheme.onSurface,
+              height: 1.4),
+        ),
       ),
     );
   }
+}
+
+/// AI 응답에 섞여 오는 마크다운 **굵게** 만 골라 진짜 볼드 조각으로 바꾼다.
+///
+/// AI(Bedrock — Claude)는 강조를 `**이렇게**` 별표 두 개로 표시하는데, 기본 [Text]
+/// 는 마크다운을 모르고 별표까지 그대로 그린다. flutter_markdown 같은 무거운 패키지를
+/// 새로 들이는 대신(대화엔 굵게 정도만 나옴), 별표 두 개로 감싼 구간만 떼어 [FontWeight]
+/// 를 입히고 별표는 지운다. 정규식 `\*\*(.+?)\*\*` 는 "가장 가까운 닫는 별표까지"(비탐욕
+/// `.+?`)를 한 묶음으로 잡아, 한 줄에 굵게가 여러 번 나와도 따로따로 처리한다.
+List<TextSpan> _markdownBoldSpans(String text) {
+  final spans = <TextSpan>[];
+  final re = RegExp(r'\*\*(.+?)\*\*', dotAll: true);
+  var last = 0;
+  for (final m in re.allMatches(text)) {
+    if (m.start > last) {
+      spans.add(TextSpan(text: text.substring(last, m.start)));
+    }
+    spans.add(TextSpan(
+        text: m.group(1),
+        style: const TextStyle(fontWeight: FontWeight.w700)));
+    last = m.end;
+  }
+  if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
+  return spans;
 }
 
 class _TypingDots extends StatelessWidget {

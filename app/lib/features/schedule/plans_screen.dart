@@ -125,6 +125,46 @@ class _PlansDialogState extends State<_PlansDialog> {
     ));
   }
 
+  /// 계획 삭제 — 확인 후 서버에서 지운다(그 여행의 일정·대화까지 cascade 삭제).
+  ///
+  /// 백엔드는 이미 있는 액션을 그대로 쓴다(**API Gateway** — 기존 POST /schedule,
+  /// **Lambda** fn-schedule 의 `delete_trip` 분기 → **DynamoDB** `polylog-trips`
+  /// 행 + 딸린 `polylog-schedules`·`polylog-chats` 까지 함께 삭제). 새 라우트·함수
+  /// 없이 프론트에서 한 번 더 호출만 한다.
+  Future<void> _delete(Trip trip) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('계획 삭제'),
+        content: Text('"${trip.name}"을(를) 삭제할까요?\n'
+            '이 여행의 모든 일정과 대화 기록도 함께 사라집니다.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('삭제')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await DioClient().post<Map<String, dynamic>>('/schedule', data: {
+        'action': 'delete_trip',
+        'trip_id': trip.tripId,
+      });
+      if (!mounted) return;
+      setState(() => _plans.removeWhere((t) => t.tripId == trip.tripId));
+      messenger.showSnackBar(SnackBar(content: Text('"${trip.name}" 삭제됨')));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
+      _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -239,6 +279,7 @@ class _PlansDialogState extends State<_PlansDialog> {
                   trip: t,
                   isOngoing: t.isOngoing(),
                   onTap: () => _open(t),
+                  onDelete: () => _delete(t),
                 )),
           const SizedBox(height: 4),
           _CreateButton(onTap: _create),
@@ -275,16 +316,19 @@ class _EmptyHint extends StatelessWidget {
   }
 }
 
-/// 계획 한 장 — 탭하면 그 여행의 일정 플래너로 들어간다. '여행 중'이면 배지를 단다.
+/// 계획 한 장 — 탭하면 그 여행의 일정 플래너로 들어간다. '여행 중'이면 배지를 달고,
+/// 오른쪽 휴지통 버튼으로 그 계획만 골라 삭제한다.
 class _PlanCard extends StatelessWidget {
   final Trip trip;
   final bool isOngoing;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
   const _PlanCard({
     required this.trip,
     required this.isOngoing,
     required this.onTap,
+    required this.onDelete,
   });
 
   @override
@@ -334,7 +378,19 @@ class _PlanCard extends StatelessWidget {
             ],
           ),
         ),
-        trailing: Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+        // 탭=열기는 그대로 두고, 삭제는 별도 버튼으로만 받는다(실수로 지우지 않게).
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: '계획 삭제',
+              visualDensity: VisualDensity.compact,
+              onPressed: onDelete,
+              icon: Icon(Icons.delete_outline, color: scheme.onSurfaceVariant),
+            ),
+            Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+          ],
+        ),
       ),
     );
   }

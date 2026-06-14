@@ -124,6 +124,8 @@ def lambda_handler(event, context):
             return _handle_reorder(body)
         if action == "set_day":
             return _handle_set_day(body)
+        if action == "set_time":
+            return _handle_set_time(body)
         # 여행(trip) 관리 — 새 API 경로 대신 같은 POST 라우트에 action 분기(배포 비용 절감).
         if action == "create_trip":
             return _handle_create_trip(body)
@@ -255,6 +257,39 @@ def _handle_set_day(body):
     _table().put_item(Item=item)
     return _resp(200, {"type": "day_set", "trip_id": trip_id,
                        "start_time": start_time, "day": day})
+
+
+# ─────────────────────────── 시간 지정(POST action="set_time") ───────────────────────────
+def _handle_set_time(body):
+    """계획 한 개의 방문 시각(time_label)만 바꾼다 — 순서·키(SK=start_time)는 불변.
+
+    AI 플래너는 시각을 임의로 정하지 않으므로(담길 때 '미정'), 사용자가 이 액션으로
+    직접 시간을 정하거나 비운다. PK(trip_id)+SK(start_time)로 항목을 특정해 time_label
+    만 갱신한다(빈 값이면 '시간 미정'으로 되돌림). day 이동(set_day)과 같은 꼴이라
+    안전하게 같은 키로 덮어쓴다.
+
+    입력 : {action:"set_time", trip_id, start_time, time_label:"HH:MM"}  (빈 값=미정)
+    출력 : {type:"time_set", trip_id, start_time, time_label}
+    """
+    trip_id = _clean(body.get("trip_id")) or _DEFAULT_TRIP_ID
+    start_time = _clean(body.get("start_time"))
+    if not start_time:
+        return _resp(400, {"error": "start_time(대상 계획의 시각 키)은 필수입니다."})
+    time_label = _clean(body.get("time_label"))
+
+    key = {"trip_id": trip_id, "start_time": start_time}
+    item = _table().get_item(Key=key).get("Item")
+    if not item:
+        return _resp(404, {"error": "해당 계획을 찾을 수 없습니다."})
+
+    # time_label 만 바꾼다(SK 불변이라 같은 키로 덮어쓰기). 빈 값이면 아래 필터에서
+    # 제거되어 '시간 미정'이 된다.
+    item["time_label"] = time_label
+    item["updated_at"] = _now_iso()
+    item = {k: v for k, v in item.items() if v not in ("", None)}
+    _table().put_item(Item=item)
+    return _resp(200, {"type": "time_set", "trip_id": trip_id,
+                       "start_time": start_time, "time_label": time_label})
 
 
 # ─────────────────────────── 조회(GET) ───────────────────────────

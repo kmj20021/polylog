@@ -188,12 +188,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
-  /// 항목을 다른 '여행 날짜'로 옮긴다 — 바텀시트로 날짜를 고르고 set_day 호출.
-  /// 잘못된 날에 담겼거나 날짜 미정인 일정을 제자리로 보내는 용도.
-  Future<void> _changeDay(_Schedule item) async {
-    if (_days.isEmpty) return;
+  /// 일정 한 개의 '방문 시각'을 직접 정한다 — 시간을 고르거나 '미정'으로 비운다.
+  ///
+  /// AI 플래너는 시간을 임의로 넣지 않으므로(담길 때 미정), 시각은 사용자가 여기서
+  /// 정한다. 항목의 time_label 만 바꾸고 SK(start_time)는 그대로 두므로 순서·키가
+  /// 변하지 않는다(서버 fn-schedule 의 POST {action:"set_time"} → **DynamoDB** 같은
+  /// 키로 PutItem). 먼저 작은 시트로 '시간 선택 / 시간 미정'을 고르게 한 뒤,
+  /// '선택'이면 시계 다이얼([showTimePicker])로 시각을 받는다.
+  Future<void> _editTime(_Schedule item) async {
     final scheme = Theme.of(context).colorScheme;
-    final picked = await showModalBottomSheet<String>(
+    final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
@@ -203,48 +207,77 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('날짜로 옮기기',
+                child: Text('시간 정하기',
                     style:
                         TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
-            for (var i = 0; i < _days.length; i++)
-              ListTile(
-                title: Text('${i + 1}일차  ${_dayShort(Trip.ymd(_days[i]))}'),
-                trailing: item.day == Trip.ymd(_days[i])
-                    ? Icon(Icons.check, color: scheme.primary)
-                    : null,
-                onTap: () => Navigator.pop(ctx, Trip.ymd(_days[i])),
-              ),
             ListTile(
-              title: const Text('날짜 미정'),
-              trailing: item.day.isEmpty
+              leading: const Icon(Icons.schedule),
+              title: const Text('시간 선택'),
+              subtitle: item.timeLabel.isNotEmpty
+                  ? Text('현재: ${item.timeLabel}')
+                  : null,
+              onTap: () => Navigator.pop(ctx, 'pick'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.clear),
+              title: const Text('시간 미정'),
+              trailing: item.timeLabel.isEmpty
                   ? Icon(Icons.check, color: scheme.primary)
                   : null,
-              onTap: () => Navigator.pop(ctx, ''),
+              onTap: () => Navigator.pop(ctx, 'clear'),
             ),
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
-    if (picked == null || picked == item.day || !mounted) return;
+    if (choice == null || !mounted) return;
+
+    String newLabel;
+    if (choice == 'clear') {
+      if (item.timeLabel.isEmpty) return; // 이미 미정이면 호출 생략
+      newLabel = '';
+    } else {
+      final picked = await showTimePicker(
+        context: context,
+        initialTime: _parseTime(item.timeLabel) ?? TimeOfDay.now(),
+      );
+      if (picked == null || !mounted) return;
+      newLabel = '${picked.hour.toString().padLeft(2, '0')}:'
+          '${picked.minute.toString().padLeft(2, '0')}';
+      if (newLabel == item.timeLabel) return; // 같은 시각이면 생략
+    }
+
     final messenger = ScaffoldMessenger.of(context);
     try {
       await DioClient().post<Map<String, dynamic>>(
         '/schedule',
         data: {
-          'action': 'set_day',
+          'action': 'set_time',
           'trip_id': widget.tripId,
           'start_time': item.startTime,
-          'day': picked,
+          'time_label': newLabel, // 빈 값이면 서버가 '시간 미정'으로 되돌림
         },
       );
       await _load();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('날짜 변경 실패: $e')));
+      messenger.showSnackBar(SnackBar(content: Text('시간 변경 실패: $e')));
     }
+  }
+
+  /// 'HH:MM' 문자열을 시계 다이얼의 초기값([TimeOfDay])으로. 형식이 아니면 null.
+  static TimeOfDay? _parseTime(String hhmm) {
+    final p = hhmm.split(':');
+    if (p.length != 2) return null;
+    final h = int.tryParse(p[0]);
+    final m = int.tryParse(p[1]);
+    if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) {
+      return null;
+    }
+    return TimeOfDay(hour: h, minute: m);
   }
 
   /// 펼친 타임라인 위의 '직접 일정 작성하기' 버튼.
@@ -667,10 +700,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         listIndex: i,
         item: visible[i],
         isLast: i == visible.length - 1,
-        showDay: _days.isNotEmpty,
         confirmDelete: () => _confirmDelete(visible[i]),
         onDelete: () => _delete(visible[i]),
-        onChangeDay: () => _changeDay(visible[i]),
+        onEditTime: () => _editTime(visible[i]),
       ),
     );
   }
@@ -720,16 +752,16 @@ class _Schedule {
 }
 
 /// 세로 타임라인의 한 줄: 왼쪽 순번 점 + 연결선, 오른쪽 장소 카드.
-/// 스와이프(밀기)로 삭제할 수 있다(Dismissible). 우상단 날짜 칩으로 다른 날로 옮긴다.
+/// 스와이프(밀기)로 삭제할 수 있다(Dismissible). 우상단 '시간' 버튼으로 방문 시각을
+/// 직접 정한다(set_time).
 class _ScheduleTile extends StatelessWidget {
   final int index;        // 화면에 보이는 순번(1-based)
   final int listIndex;    // 드래그 재정렬용 리스트 위치(0-based)
   final _Schedule item;
   final bool isLast;
-  final bool showDay;     // 날짜 칩(다른 날로 옮기기) 표시 여부
   final Future<bool> Function() confirmDelete;
   final VoidCallback onDelete;
-  final VoidCallback onChangeDay;
+  final VoidCallback onEditTime;
 
   const _ScheduleTile({
     super.key,
@@ -737,10 +769,9 @@ class _ScheduleTile extends StatelessWidget {
     required this.listIndex,
     required this.item,
     required this.isLast,
-    required this.showDay,
     required this.confirmDelete,
     required this.onDelete,
-    required this.onChangeDay,
+    required this.onEditTime,
   });
 
   /// 장소명을 탭했을 때: 구글 지도에서 해당 장소를 연다(place_id 있으면 정확히,
@@ -823,16 +854,6 @@ class _ScheduleTile extends StatelessWidget {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (item.timeLabel.isNotEmpty) ...[
-                              Padding(
-                                padding: const EdgeInsets.only(top: 3),
-                                child: Text(item.timeLabel,
-                                    style: theme.textTheme.labelMedium?.copyWith(
-                                        color: scheme.primary,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(width: 8),
-                            ],
                             // 장소(place_id 있음)면 이름 탭 → 구글 지도에서 그 장소를
                             // 연다(강조색 + 지도 아이콘). 직접 작성한 메모성 일정은
                             // 장소가 아니므로 링크 없이 평범한 텍스트로 둔다.
@@ -872,15 +893,11 @@ class _ScheduleTile extends StatelessWidget {
                                       ),
                                     ),
                             ),
-                            if (showDay) ...[
-                              const SizedBox(width: 8),
-                              _DayPill(
-                                label: item.day.isEmpty
-                                    ? '미정'
-                                    : _ScheduleScreenState._dayShort(item.day),
-                                onTap: onChangeDay,
-                              ),
-                            ],
+                            const SizedBox(width: 8),
+                            _TimePill(
+                              timeLabel: item.timeLabel,
+                              onTap: onEditTime,
+                            ),
                           ],
                         ),
                         if (item.title.isNotEmpty &&
@@ -936,15 +953,17 @@ class _ScheduleTile extends StatelessWidget {
   }
 }
 
-/// 일정 카드 우상단의 작은 날짜 칩 — 탭하면 다른 여행 날짜로 옮긴다(set_day).
-class _DayPill extends StatelessWidget {
-  final String label;
+/// 일정 카드 우상단의 작은 '시간' 버튼 — 탭하면 방문 시각을 직접 정하거나 미정으로
+/// 둔다(set_time). 시각이 정해져 있으면 'HH:MM'을, 비어 있으면 '시간'을 보여준다.
+class _TimePill extends StatelessWidget {
+  final String timeLabel;
   final VoidCallback onTap;
-  const _DayPill({required this.label, required this.onTap});
+  const _TimePill({required this.timeLabel, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final hasTime = timeLabel.isNotEmpty;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
@@ -957,13 +976,13 @@ class _DayPill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(label,
+            Icon(Icons.schedule, size: 14, color: scheme.primary),
+            const SizedBox(width: 3),
+            Text(hasTime ? timeLabel : '시간',
                 style: TextStyle(
                     color: scheme.primary,
                     fontSize: 12,
                     fontWeight: FontWeight.w600)),
-            const SizedBox(width: 2),
-            Icon(Icons.expand_more, size: 14, color: scheme.primary),
           ],
         ),
       ),

@@ -440,6 +440,61 @@ def test_set_day_not_found_404(monkeypatch):
     assert table.put_items == []
 
 
+# ─────────────────────────── 시간 지정(action="set_time") ───────────────────────────
+def _set_time(body):
+    return {"httpMethod": "POST", "body": json.dumps({**body, "action": "set_time"})}
+
+
+def test_set_time_updates_time_label(monkeypatch):
+    table = _FakeTable(query_items=[
+        {"trip_id": "demo-trip", "start_time": "t1", "place_name": "A"},
+    ])
+    _install_table(monkeypatch, table)
+
+    resp = app.lambda_handler(_set_time({
+        "trip_id": "demo-trip", "start_time": "t1", "time_label": "09:30"}), None)
+
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["type"] == "time_set"
+    assert body["time_label"] == "09:30"
+    # 같은 키로 time_label 만 채워 덮어쓰기(SK 불변)
+    stored = table.put_items[-1]
+    assert stored["start_time"] == "t1"
+    assert stored["time_label"] == "09:30"
+
+
+def test_set_time_empty_clears_to_undetermined(monkeypatch):
+    table = _FakeTable(query_items=[
+        {"trip_id": "demo-trip", "start_time": "t1", "place_name": "A",
+         "time_label": "09:30"},
+    ])
+    _install_table(monkeypatch, table)
+
+    app.lambda_handler(_set_time({"trip_id": "demo-trip", "start_time": "t1"}), None)
+    # 빈 time_label → '시간 미정'으로 되돌림(속성 제거)
+    assert "time_label" not in table.put_items[-1]
+
+
+def test_set_time_missing_start_time_400(monkeypatch):
+    table = _FakeTable(query_items=[])
+    _install_table(monkeypatch, table)
+
+    resp = app.lambda_handler(_set_time({"trip_id": "demo-trip"}), None)
+    assert resp["statusCode"] == 400
+    assert table.put_items == []
+
+
+def test_set_time_not_found_404(monkeypatch):
+    table = _FakeTable(query_items=[])
+    _install_table(monkeypatch, table)
+
+    resp = app.lambda_handler(_set_time({
+        "trip_id": "demo-trip", "start_time": "ghost", "time_label": "09:30"}), None)
+    assert resp["statusCode"] == 404
+    assert table.put_items == []
+
+
 # ─────────────────────────── GET ───────────────────────────
 def test_get_returns_timeline(monkeypatch):
     items = [

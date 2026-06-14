@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polylog — AI 여행 동행자 · 발표 (v2)</title>
+  <!-- v1 자산 재사용 (중복 복사 없이 상대경로 참조) -->
+  <link rel="stylesheet" href="../v1/vendor/dist/reset.css">
+  <link rel="stylesheet" href="../v1/vendor/dist/reveal.css">
+  <link rel="stylesheet" href="../v1/vendor/dist/theme/white.css">
+  <link rel="stylesheet" href="../v1/css/custom.css">
+  <style>
+    /* ── v2 추가 스타일 (v1 테마 위에 최소 확장) ── */
+
+    /* 공통 표 — 패널 안에서 조밀하게 */
+    .reveal .panel table { width: 100%; border-collapse: collapse; font-size: 0.5em; margin-top: 0.3em; }
+    .reveal .panel th, .reveal .panel td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: middle; }
+    .reveal .panel th { background: #eef6fd; color: var(--sky-d); font-weight: 800; }
+    .reveal .panel td.c, .reveal .panel th.c { text-align: center; white-space: nowrap; }
+    .reveal .panel tr.hi td { background: #eaf6ef; font-weight: 700; }
+    .reveal .panel del { color: #aab4c0; }
+    .reveal .panel .ok { color: var(--forest-d); font-weight: 800; }
+    .reveal .panel .arrow { color: var(--sky-d); font-weight: 800; }
+
+    /* WBS 구조 트리 */
+    .wtree { background:#f6f9fc; border:1px solid var(--line); border-radius:14px;
+      padding:18px 24px; font-family: "Pretendard","Noto Sans KR",monospace; font-size:0.62em; line-height:1.6; white-space:pre; color:var(--ink); }
+    .wtree b { color: var(--sky-d); }
+
+    /* 통계 칩 */
+    .stats { display:grid; grid-template-columns: repeat(3,1fr); gap:12px; margin-top:14px; }
+    .stat { background:#fff; border:1px solid var(--line); border-top:4px solid var(--forest); border-radius:12px; padding:12px 16px; text-align:center; }
+    .stat .v { font-size:1.5em; font-weight:900; color:var(--sky-d); line-height:1.1; }
+    .stat .l { font-size:0.55em; color:var(--sub); margin-top:0.25em; }
+
+    /* 크리티컬 패스 체인 */
+    .cpath { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:0.4em; font-size:0.62em; }
+    .cpath .n { background:#eef6fd; border:1px solid var(--sky); border-radius:10px; padding:7px 12px; font-weight:700; }
+    .cpath .a { color:var(--sky-d); font-weight:900; }
+
+    /* 확대 가능 표시 + 오버레이 (핵심 슬라이드 확대 구현) */
+    .zoomable { cursor: zoom-in; position: relative; }
+    .zoomhint { position:absolute; top:6px; right:10px; font-size:11px; font-weight:800; color:#fff;
+      background:var(--sky); border-radius:999px; padding:3px 10px; z-index:3; pointer-events:none; opacity:.9; }
+    .zoom-overlay { position: fixed; inset: 0; background: rgba(10,20,35,.82); z-index: 9999;
+      display: flex; align-items: center; justify-content: center; cursor: zoom-out; padding: 2.5vh 2.5vw;
+      animation: zfade .18s ease; }
+    @keyframes zfade { from { opacity:0; } to { opacity:1; } }
+    .zoom-box { background:#fff; border-radius:18px; padding:30px 40px; max-width:96vw; max-height:96vh;
+      overflow:auto; box-shadow:0 28px 80px rgba(0,0,0,.55); }
+    .zoom-box svg { width:auto; max-width:92vw; max-height:90vh; height:auto; }
+    .zoom-box table { width:auto; border-collapse:collapse; font-size:21px; color:var(--ink); }
+    .zoom-box th, .zoom-box td { border:1px solid var(--line); padding:8px 14px; }
+    .zoom-box th { background:#eef6fd; color:var(--sky-d); }
+    .zoom-box .wtree { font-size:24px; }
+    .zoom-close { position:fixed; top:18px; right:26px; color:#fff; font-size:30px; font-weight:800; z-index:10000; cursor:pointer; }
+
+    /* 클릭 가능한 카드 제목 (해소 시연 영상 트리거) */
+    .card .ttl.playable { cursor:pointer; color:var(--sky-d); }
+    .card .ttl.playable:hover { text-decoration:underline; }
+    .card .ttl .play { display:inline-block; margin-left:0.25em; font-size:0.62em; font-weight:800;
+      color:#fff; background:var(--forest); border-radius:999px; padding:0.05em 0.55em; vertical-align:middle; }
+
+    /* 시연 영상 오버레이 */
+    .video-overlay { position:fixed; inset:0; background:rgba(10,20,35,.86); z-index:9999;
+      display:flex; align-items:center; justify-content:center; padding:3vh 3vw; animation:zfade .18s ease; cursor:zoom-out; }
+    .video-box { text-align:center; max-width:94vw; max-height:94vh; cursor:default; }
+    .video-box video { max-width:92vw; max-height:82vh; border-radius:14px; background:#000;
+      box-shadow:0 24px 70px rgba(0,0,0,.55); }
+    .video-box .vcap { color:#fff; font-weight:800; font-size:22px; margin-bottom:14px; }
+    .video-box .vmiss { display:none; color:#ffe08a; font-size:15px; margin-top:12px; }
+
+    /* 발표 강조: 핵심 슬라이드 제목 옆 별 */
+    .key-badge { display:inline-block; margin-left:0.5em; font-size:0.5em; color:var(--forest-d);
+      background:#eaf6ef; border-radius:999px; padding:0.2em 0.8em; font-weight:800; vertical-align:middle; }
+
+    /* 프로세스 4박스 */
+    .proc { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-top:0.4em; }
+    .proc .p { background:#fff; border:1px solid var(--line); border-left:5px solid var(--sky); border-radius:14px; padding:16px 20px; }
+    .proc .p .t { font-weight:800; color:var(--sky-d); }
+    .proc .p .x { font-size:0.66em; color:var(--sub); line-height:1.55; margin-top:0.3em; }
+    .proc .p .badge { display:inline-block; font-size:0.55em; font-weight:800; color:var(--forest-d); background:#eaf6ef; border-radius:999px; padding:0.18em 0.7em; margin-top:0.4em; }
+
+    /* 마무리 가산점 */
+    .closing { display:grid; gap:14px; margin-top:0.3em; }
+    .closing .row { display:flex; align-items:center; gap:14px; background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 18px; }
+    .closing .row .p { font-size:0.95em; font-weight:900; color:var(--forest-d); white-space:nowrap; }
+    .closing .row .t { font-size:0.72em; color:var(--ink); }
+  </style>
+</head>
+<body>
+
+<!-- 지구·비행 상징 배경 (v1 동일) -->
+<div class="bg-motif" aria-hidden="true">
+  <svg viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid slice">
+    <g transform="translate(1000,560)" fill="none" stroke="#2b8de6" stroke-width="1.4" opacity="0.16">
+      <circle r="300"/><ellipse rx="300" ry="110"/><ellipse rx="300" ry="200"/>
+      <ellipse rx="110" ry="300"/><ellipse rx="210" ry="300"/><line x1="-300" y1="0" x2="300" y2="0"/>
+    </g>
+    <path d="M120,560 C 420,180 820,160 1180,360" fill="none" stroke="#2e9e5b"
+          stroke-width="2" stroke-dasharray="3 12" stroke-linecap="round" opacity="0.35"/>
+    <circle cx="120" cy="560" r="6" fill="#2e9e5b" opacity="0.5"/>
+    <g transform="translate(880,196) rotate(28)" fill="#2e9e5b" opacity="0.5">
+      <path d="M0,-11 L3,-1 L20,5 L20,9 L3,6 L2,15 L7,19 L7,22 L0,20 L-7,22 L-7,19 L-2,15 L-3,6 L-20,9 L-20,5 L-3,-1 Z"/>
+    </g>
+  </svg>
+</div>
+
+<div class="reveal">
+  <div class="slides">
+
+    <!-- 1. 타이틀 -->
+    <section>
+      <div class="hero">
+        <div class="logo">Polylog</div>
+        <div class="tagline">AI 여행 동행자</div>
+        <div class="pitch">여행의 잡일은 AI가, 사용자는 여행에만 <br>'길을 잃어도, 이야기는 잃지 않도록'</div>
+      </div>
+      <div class="foot">2026-05-25 ~ 06-16 · 3주 PoC · github.com/kmj20021/polylog</div>
+    </section>
+
+    <!-- 2. 문제 정의 (제목 클릭 → 해소 시연 영상) -->
+    <section>
+      <div class="panel">
+        <span class="kicker">PROBLEM · 시연</span>
+        <h2>여행자의 4가지 불편 — <span style="color:var(--forest-d)">제목 클릭 시 해소 시연 ▶</span></h2>
+        <div class="grid4">
+          <div class="card">
+            <div class="num">01</div>
+            <div class="ttl playable" data-video="demo-schedule.mp4" data-label="① AI와 대화로 일정 설계">어디를 가야 할지 모르겠다 <span class="play">▶</span></div>
+            <div class="desc">계획 단계의 막막함 → <strong>AI와 대화</strong>로 일정을 함께 설계.</div>
+            <span class="tag">서브3 · AI 일정</span>
+          </div>
+          <div class="card">
+            <div class="num">02</div>
+            <div class="ttl playable" data-video="demo-recommend.mp4" data-label="② GPS + AI 리뷰 분석 장소 추천">즉흥 탐색 · 광고 리뷰 <span class="play">▶</span></div>
+            <div class="desc">GPS + Google Places로 찾고, <strong>원어민 리뷰를 AI가 분석</strong>해 추천 이유까지 제시.</div>
+            <span class="tag">메인 · 장소 추천</span>
+          </div>
+          <div class="card">
+            <div class="num">03</div>
+            <div class="ttl playable" data-video="demo-menu.mp4" data-label="③ 구글 렌즈로 메뉴판 실시간 번역">외국어 메뉴판 해독 곤란 <span class="play">▶</span></div>
+            <div class="desc">메뉴판은 <strong>구글 렌즈</strong>로 실시간 번역 — 라틴·CJK 모두 안정적.</div>
+            <span class="tag">서브1 · 메뉴판 번역</span>
+          </div>
+          <div class="card">
+            <div class="num">04</div>
+            <div class="ttl playable" data-video="demo-receipt.mp4" data-label="④ 영수증 자동 가계부">지출 관리가 번거롭다 <span class="play">▶</span></div>
+            <div class="desc">영수증 한 장으로 <strong>금액·항목 자동 가계부</strong> (Bedrock 비전).</div>
+            <span class="tag">서브2 · 영수증 기록</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 아키텍처 ★ (확대) -->
+    <section>
+      <div class="panel">
+        <span class="kicker">ARCHITECTURE</span>
+        <h2>설계 — 아키텍처<span class="key-badge">핵심</span></h2>
+        <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span>
+        <pre class="mermaid">
+flowchart TD
+  A["Flutter App<br/>Camera · GPS · Chat"] -->|"HTTPS + Google ID 토큰"| G
+  A -.->|"메뉴 번역은 외부 위임"| LENS["Google 렌즈<br/>(외부 앱)"]
+  G["API Gateway (REST)<br/>+ fn-authorizer · tokeninfo 검증"] --> R["fn-recommend"]
+  G --> S["fn-schedule"]
+  G --> P["fn-planner<br/>대화형 ~30s"]
+  G --> C["fn-receipt"]
+  G -.->|"미사용"| M["fn-menu<br/>(deprecated)"]
+  C -.->|"Presigned URL"| A
+  A -.->|"사진 업로드"| ST["S3 (미디어)"]
+  ST -.->|"사진 읽기"| C
+  R --> AI1["Bedrock · Google Places"]
+  S --> AI4["Bedrock · Google Places"]
+  P --> AI5["Bedrock Haiku·Sonnet · Places"]
+  C --> AI3["Bedrock 비전 · 환율 API"]
+  AI1 & AI3 & AI4 & AI5 --> DB["DynamoDB (구조 데이터)"]
+  classDef app fill:#e8f3fb,stroke:#2b8de6,color:#16263d;
+  classDef gw  fill:#d7ebfa,stroke:#1e6fd6,color:#16263d;
+  classDef fn  fill:#eef6fd,stroke:#2b8de6,color:#16263d;
+  classDef dead fill:#f1f4f8,stroke:#cbd5e1,color:#94a3b8;
+  classDef ext fill:#fff4e6,stroke:#e0993a,color:#7a5418;
+  classDef ai  fill:#f1f4f8,stroke:#9aa7b6,color:#475569;
+  classDef store fill:#e7f6ed,stroke:#2e9e5b,color:#16263d;
+  class A app; class G gw; class R,S,P,C fn; class M dead; class LENS ext;
+  class AI1,AI3,AI4,AI5 ai; class ST,DB store;
+        </pre>
+        </div>
+        <div class="diagram-caption">Lambda <strong>배포 7종</strong> (앱 활성 6 · fn-menu 미사용) · <strong>AWS AI = Bedrock 단독</strong> · 외부: Google Places·환율·구글 렌즈 — 상시 서버 0대<br/>성능: Haiku + 프롬프트 토큰 최소화 · 정렬은 trip_id+시각SK로 비용 0 · 무료티어 월 $2~3</div>
+      </div>
+    </section>
+
+    <!-- 8. ADR 시행착오 ★ (확대) -->
+    <section>
+      <div class="panel">
+        <span class="kicker">ADR · 시행착오</span>
+        <h2>결정을 번복한 4가지<span class="key-badge">핵심</span></h2>
+        <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span>
+        <table>
+          <thead><tr><th class="c">#</th><th>처음 계획</th><th class="c">→</th><th>최종 결정</th><th>왜 바꿨나</th><th class="c">ADR</th></tr></thead>
+          <tbody>
+            <tr><td class="c">1</td><td>Cognito 인증</td><td class="c arrow">→</td><td class="ok">Google OAuth + tokeninfo</td><td>공용계정 IAM에서 Cognito 차단 → 무상태 토큰 검증으로 우회</td><td class="c">007</td></tr>
+            <tr><td class="c">2</td><td>메뉴 OCR (Textract→Bedrock 비전)</td><td class="c arrow">→</td><td class="ok">구글 렌즈 위임</td><td>작은 비전모델 1콜 품질 불안정 + 알레르기 추정 불가 → 검증된 도구로 위임</td><td class="c">016·018</td></tr>
+            <tr><td class="c">3</td><td>CloudFront CDN</td><td class="c arrow">→</td><td class="ok">S3 Presigned URL</td><td>PoC 트래픽엔 과투자 + 영수증은 개인정보 → 단순화</td><td class="c">008</td></tr>
+            <tr><td class="c">4</td><td>fn-schedule이 플래너까지 겸직</td><td class="c arrow">→</td><td class="ok">fn-planner 분리</td><td>30초 무거운 플래너가 가벼운 CRUD 타임아웃까지 끌어내림 → 고장 격리</td><td class="c">017</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <div class="diagram-caption">ADR 18건으로 모든 결정의 근거·대안·번복을 기록 — "왜 이 기술을 버렸는가"를 설명 가능</div>
+      </div>
+    </section>
+
+    <!-- 9. WBS ① 구조 개요 + 통계 -->
+    <section>
+      <div class="panel">
+        <span class="kicker">WBS · 1/4 구조</span>
+        <h2>작업 분해 구조 (WBS)</h2>
+        <div class="wtree">1.0 <b>Polylog</b>
+ ├─ 1.1 프로젝트 관리            ├─ 1.6 서브2: 영수증 기록 (FR-S2/UC-3)
+ ├─ 1.2 AWS 기반 환경 구축       ├─ 1.7 서브3: AI 일정 관리 (FR-S3/UC-4)
+ ├─ 1.3 Flutter 앱 기반 구축     ├─ 1.8 통합 테스트 및 최적화
+ ├─ 1.4 메인: AI 장소 추천       └─ 1.9 마무리 및 포트폴리오
+ ├─ 1.5 서브1: 메뉴판 번역 (FR-S1/UC-2)</div>
+        <div class="stats">
+          <div class="stat"><div class="v">9 / 27 / 95</div><div class="l">작업 패키지 (L1 / L2 / L3)</div></div>
+          <div class="stat"><div class="v">7 종</div><div class="l">Lambda (배포 / 활성 6)</div></div>
+          <div class="stat"><div class="v">7 종</div><div class="l">DynamoDB 테이블</div></div>
+          <div class="stat"><div class="v">Bedrock</div><div class="l">AWS AI (단독 — 원안 3종)</div></div>
+          <div class="stat"><div class="v">2 종</div><div class="l">외부 API (Places · 환율)</div></div>
+          <div class="stat"><div class="v">0 대</div><div class="l">상시 서버 (서버리스)</div></div>
+        </div>
+        <div class="foot">근거: docs/WBS/wbs.md — 기획서·요구사항 추적성 매핑(FR/UC) 포함</div>
+      </div>
+    </section>
+
+    <!-- 10. WBS ② 마일스톤 타임라인 -->
+    <section>
+      <div class="panel">
+        <span class="kicker">WBS · 2/4 마일스톤</span>
+        <h2>3주 마일스톤 (2026-05-25 ~ 06-16)</h2>
+        <div class="timeline">
+          <div class="tl done"><div class="wk">12주차 · 05-25~31</div><div class="th">AWS 환경 + Flutter 기반 + fn-health 관통</div><span class="st">완료</span></div>
+          <div class="tl done"><div class="wk">13주차 · 06-01~07</div><div class="th">첫 배포 + 메인 + 서브 3종 + 로그인 <br>(중간발표 06-02)</div><span class="st">완료</span></div>
+          <div class="tl done"><div class="wk">14주차 · 06-08~14</div><div class="th">인증 안정화 + 통합테스트 + 최적화 + 문서</div><span class="st">완료</span></div>
+          <div class="tl active"><div class="wk">15주차 · 06-15~16</div><div class="th">최종 안정화 + 발표 <br>(최종발표 06-16)</div><span class="st">발표</span></div>
+        </div>
+        <div class="legend">
+          <span><span class="dot done"></span>완료</span>
+          <span><span class="dot active"></span>발표</span>
+        </div>
+        <div class="pbars">
+          <div class="pbar"><span class="name">1.2 AWS 환경</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="pbar"><span class="name">1.3 Flutter 기반</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="pbar"><span class="name">1.4 메인 추천</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="pbar"><span class="name">1.5 메뉴(렌즈)</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="pbar"><span class="name">1.6 영수증</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="pbar"><span class="name">1.7 AI 일정</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="pbar"><span class="name">1.8 통합·최적화</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="pbar"><span class="name">1.9 문서·발표</span><span class="track"><span class="fill part" style="width:90%"></span></span><span class="pct">90%</span></div>
+        </div>
+        <div class="foot">주 5일 이상(주말 포함) · 주차별 6일 작업 (05-29 · 06-03 · 06-11 휴식)</div>
+      </div>
+    </section>
+
+    <!-- 11. WBS ③ 기능별 완료 실적 ★ (확대) -->
+    <section>
+      <div class="panel">
+        <span class="kicker">WBS · 3/4 완료 실적</span>
+        <h2>기능별 완료일 (실적)<span class="key-badge">핵심</span></h2>
+        <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span>
+        <table>
+          <thead><tr><th class="c">WBS</th><th>기능 / 작업</th><th class="c">완료일</th><th class="c">요일</th></tr></thead>
+          <tbody>
+            <tr><td class="c">1.1</td><td>기획서·요구사항·WBS 확정</td><td class="c">05-25</td><td class="c">월</td></tr>
+            <tr><td class="c">1.2.2~4</td><td>AWS 환경 (S3·DynamoDB·API GW·SAM)</td><td class="c">05-26</td><td class="c">화</td></tr>
+            <tr><td class="c">1.2.1</td><td>IAM 수령·SafeRole 적용·격리규약</td><td class="c">05-27</td><td class="c">수</td></tr>
+            <tr><td class="c">1.3.1</td><td>Flutter 초기화·feature 구조</td><td class="c">05-28</td><td class="c">목</td></tr>
+            <tr><td class="c">1.3.2~3</td><td>공통 UI·4탭 네비·로그인 화면</td><td class="c">05-30</td><td class="c">토</td></tr>
+            <tr><td class="c">1.2.4.2</td><td>fn-health 배포 + API GW 관통</td><td class="c">05-31</td><td class="c">일</td></tr>
+            <tr><td class="c">1.3/1.4</td><td>첫 SAM 배포 + 메인 추천 E2E 관통</td><td class="c">06-01</td><td class="c">월</td></tr>
+            <tr><td class="c">1.4.1</td><td>fn-recommend 연동 <em>(중간발표)</em></td><td class="c">06-02</td><td class="c">화</td></tr>
+            <tr class="hi"><td class="c">1.4</td><td>메인: AI 장소 추천 완성</td><td class="c">06-04</td><td class="c">목</td></tr>
+            <tr class="hi"><td class="c">1.7</td><td>서브3: AI 일정 관리 완성</td><td class="c">06-05</td><td class="c">금</td></tr>
+            <tr class="hi"><td class="c">1.5</td><td>서브1: 메뉴판 번역 완성</td><td class="c">06-06</td><td class="c">토</td></tr>
+            <tr class="hi"><td class="c">1.6</td><td>서브2: 영수증 기록 완성</td><td class="c">06-07</td><td class="c">일</td></tr>
+            <tr><td class="c">1.2.5/1.3.3</td><td>소셜 OAuth 인증 안정화</td><td class="c">06-08</td><td class="c">월</td></tr>
+            <tr><td class="c">1.8.1</td><td>4기능 통합(E2E) 시나리오 테스트</td><td class="c">06-09</td><td class="c">화</td></tr>
+            <tr><td class="c">1.3.2</td><td>UI 안정화 (설정·선호도·배치)</td><td class="c">06-10</td><td class="c">수</td></tr>
+            <tr><td class="c">1.8.4</td><td>성능·비용 최적화 (프롬프트 토큰↓)</td><td class="c">06-12</td><td class="c">금</td></tr>
+            <tr><td class="c">1.9.1</td><td>문서 정리 (README·ADR·setup/deploy/testing)</td><td class="c">06-13</td><td class="c">토</td></tr>
+            <tr><td class="c">1.9.2</td><td>데모·발표 자료·리허설</td><td class="c">06-14</td><td class="c">일</td></tr>
+            <tr class="hi"><td class="c">1.9.2</td><td><strong>최종 발표</strong></td><td class="c">06-16</td><td class="c">화</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12. WBS ④ 크리티컬 패스 + 리스크 -->
+    <section>
+      <div class="panel">
+        <span class="kicker">WBS · 4/4 크리티컬 패스</span>
+        <h2>핵심 경로 &amp; 리스크 대응</h2>
+        <div style="font-size:0.62em;font-weight:700;color:var(--sub);margin-bottom:0.2em;">Bedrock 프롬프트 설계 = 전체 일정의 크리티컬 패스 (메인에서 패턴 확립 → 서브에서 재활용)</div>
+        <div class="cpath">
+          <span class="n">Bedrock 모델 액세스</span><span class="a">→</span>
+          <span class="n">메인 추천 프롬프트</span><span class="a">→</span>
+          <span class="n">품질 튜닝</span><span class="a">→</span>
+          <span class="n">서브 기능 재활용</span><span class="a">→</span>
+          <span class="n">대화형 일정(최난도)</span><span class="a">→</span>
+          <span class="n">통합 테스트</span><span class="a">→</span>
+          <span class="n">데모</span>
+        </div>
+        <table style="margin-top:14px;">
+          <thead><tr><th>구간</th><th>리스크</th><th class="c">영향</th><th>대응</th></tr></thead>
+          <tbody>
+            <tr><td>1.4 메인</td><td>Bedrock cross-region 지연(~200ms)</td><td class="c">하</td><td>프롬프트 토큰 최소화</td></tr>
+            <tr><td>1.5 메뉴</td><td>비정형 OCR 정확도</td><td class="c">중</td><td>인앱 분석 폐지 → 구글 렌즈 위임 (ADR-018)</td></tr>
+            <tr><td>1.7 일정</td><td>대화 컨텍스트 복잡도</td><td class="c">중</td><td>최근 10개 메시지로 윈도우 제한 · fn-planner 분리</td></tr>
+            <tr><td>인증</td><td>OAuth/토큰 검증 오류</td><td class="c">중</td><td>tokeninfo 위임 + 단위테스트 8 passed</td></tr>
+            <tr><td>배포</td><td>Access Key 미발급</td><td class="c">중</td><td>CloudShell sam deploy + PoC 스크립트 선검증</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 13. 프로세스: 환경·배포·테스트·문서 -->
+    <section>
+      <div class="panel">
+        <span class="kicker">PROCESS</span>
+        <h2>개발환경 · 빌드/배포 · 테스트 · 문서</h2>
+        <div class="proc">
+          <div class="p"><div class="t">개발환경</div>
+            <div class="x">Flutter SDK + Android 타깃 · AWS SAM · CloudShell</div></div>
+          <div class="p"><div class="t">빌드 → 배포</div>
+            <div class="x">코드 → <strong>SAM 빌드</strong>(패키징) → <strong>CloudShell sam deploy</strong>(클라우드 반영) → Lambda 갱신<br/>Access Key 미발급이라 콘솔 배포 (ADR-010/013)</div></div>
+          <div class="p"><div class="t">테스트</div>
+            <div class="x">fn-authorizer <strong>단위테스트 8 passed</strong> · 배포 후 실환경 <strong>통합(E2E)</strong> 검증</div>
+            <span class="badge">8 passed</span></div>
+          <div class="p"><div class="t">문서 · 설치가이드</div>
+            <div class="x">README + setup/deploy/testing + ADR 18건 + AGENTS.md<br/>GitHub 클론만으로 재현 가능</div></div>
+        </div>
+        <div class="foot">WBS·진행은 GitHub에서 실시간 확인 (잔디 링크)</div>
+      </div>
+    </section>
+
+    <!-- 14. 활용 · 향후 · 나만의 기법 -->
+    <section>
+      <div class="panel center">
+        <span class="kicker">WRAP-UP</span>
+        <h2>활용 · 향후 · 나만의 기법</h2>
+        <p style="font-size:0.8em;line-height:1.6;">여행 한 번이 <strong>추천부터 정산까지 한 앱</strong>에 기록됩니다. 향후 실시간 통역(Transcribe)으로 확장.</p>
+        <div class="closing">
+          <div class="row"><div class="p">+2</div><div class="t">에이전트·스킬·룰을 <strong>단일 CLAUDE.md</strong>로 통합 운영</div></div>
+          <div class="row"><div class="p">+1</div><div class="t">AI 에이전트 워크플로우 적극 활용</div></div>
+          <div class="row"><div class="p">+1</div><div class="t">LLM 기반 <strong>메모리</strong>로 결정·암묵지 축적</div></div>
+        </div>
+        <div class="foot">감사합니다 · github.com/kmj20021/polylog</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script src="../v1/vendor/dist/reveal.js"></script>
+<script src="../v1/vendor/plugin/notes/notes.js"></script>
+<script src="../v1/vendor/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false, theme: 'base', securityLevel: 'loose',
+    fontFamily: '"Pretendard","Noto Sans KR",system-ui,sans-serif',
+    themeVariables: {
+      primaryColor: '#eef6fd', primaryBorderColor: '#2b8de6', primaryTextColor: '#16263d',
+      lineColor: '#9aa7b6', fontSize: '14px'
+    },
+    flowchart: { curve: 'basis', useMaxWidth: true }
+  });
+
+  Reveal.initialize({
+    hash: true, slideNumber: 'c/t', transition: 'slide',
+    width: 1280, height: 720, margin: 0.06,
+    controls: true, progress: true, plugins: [ RevealNotes ]
+  });
+
+  // Mermaid: 보이는 슬라이드에서만 렌더 (숨김 슬라이드 width=0 오류 방지)
+  function renderMermaidIn(slide) {
+    if (!slide) return;
+    slide.querySelectorAll('pre.mermaid:not([data-rendered])').forEach(function (el, i) {
+      var code = el.textContent;
+      var id = 'mmd-' + Date.now() + '-' + i;
+      mermaid.render(id, code).then(function (res) {
+        el.innerHTML = res.svg;
+        el.setAttribute('data-rendered', '1');
+      }).catch(function (e) { console.error('Mermaid render error:', e); });
+    });
+  }
+  Reveal.on('ready', function (e) { renderMermaidIn(e.currentSlide); });
+  Reveal.on('slidechanged', function (e) { renderMermaidIn(e.currentSlide); });
+
+  // ── 핵심 슬라이드 확대 구현 ──
+  // .zoomable 요소를 클릭하면 본문 내용을 전체화면 오버레이로 확대(reveal transform 영향 회피 위해 body에 부착).
+  function openZoom(el) {
+    var ov = document.createElement('div');
+    ov.className = 'zoom-overlay';
+    var close = document.createElement('div');
+    close.className = 'zoom-close'; close.textContent = '×';
+    var box = document.createElement('div');
+    box.className = 'zoom-box';
+    // 확대 힌트 배지는 복제본에서 제거
+    var clone = el.cloneNode(true);
+    var h = clone.querySelector('.zoomhint'); if (h) h.remove();
+    box.innerHTML = clone.innerHTML;
+    ov.appendChild(close); ov.appendChild(box);
+    ov.addEventListener('click', function () { ov.remove(); });
+    document.addEventListener('keydown', function esc(ev) {
+      if (ev.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', esc); }
+    });
+    document.body.appendChild(ov);
+  }
+  document.addEventListener('click', function (ev) {
+    var z = ev.target.closest('.zoomable');
+    if (z && !ev.target.closest('.zoom-overlay')) { ev.stopPropagation(); openZoom(z); }
+  }, true);
+
+  // ── 문제 카드 제목 클릭 → 해소 시연 영상 ──
+  // 각 카드의 data-video(파일명)를 전체화면 오버레이로 재생. 파일은 v2 폴더에 두면 된다.
+  function openVideo(src, label) {
+    var ov = document.createElement('div');
+    ov.className = 'video-overlay';
+    var close = document.createElement('div');
+    close.className = 'zoom-close'; close.textContent = '×';
+    var box = document.createElement('div');
+    box.className = 'video-box';
+    box.innerHTML =
+      (label ? '<div class="vcap">' + label + '</div>' : '') +
+      '<video controls autoplay playsinline src="' + src + '"></video>' +
+      '<div class="vmiss">⚠️ ' + src + ' 파일을 docs/presentation/v2/ 에 넣어주세요.</div>';
+    ov.appendChild(close); ov.appendChild(box);
+    // 배경(또는 ×) 클릭 시 닫기. 영상/자막 클릭은 유지.
+    ov.addEventListener('click', function (e) {
+      if (e.target === ov || e.target === close) ov.remove();
+    });
+    box.querySelector('video').addEventListener('error', function () {
+      box.querySelector('.vmiss').style.display = 'block';
+    }, true);
+    document.addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', esc); }
+    });
+    document.body.appendChild(ov);
+  }
+  document.addEventListener('click', function (ev) {
+    var p = ev.target.closest('[data-video]');
+    if (p) { ev.stopPropagation(); openVideo(p.getAttribute('data-video'), p.getAttribute('data-label')); }
+  }, true);
+</script>
+</body>
+</html>
