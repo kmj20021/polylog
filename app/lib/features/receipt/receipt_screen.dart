@@ -713,7 +713,11 @@ class _ReceiptEditSheetState extends State<_ReceiptEditSheet> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    // 저장 버튼이 ①키보드(viewInsets)와 ②시스템 내비게이션 바(padding.bottom)에
+    // 가리지 않도록 둘을 모두 피한다. 키보드가 올라오면 padding.bottom 은 0 이 되고
+    // viewInsets 가 그 높이를 대신하므로, 둘을 더하면 키보드 유/무 두 경우 모두 맞다.
+    final media = MediaQuery.of(context);
+    final bottomInset = media.viewInsets.bottom + media.padding.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
       child: SingleChildScrollView(

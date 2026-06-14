@@ -1026,24 +1026,42 @@ class _ManualScheduleDialog extends StatefulWidget {
 
 class _ManualScheduleDialogState extends State<_ManualScheduleDialog> {
   final _textCtrl = TextEditingController();
-  final _timeCtrl = TextEditingController();
+
+  /// 고른 방문 시각(없으면 '시간 미정'). 일정 카드의 '시간 정하기'와 똑같이
+  /// 시계 다이얼([showTimePicker])로 받아, 두 곳의 시간 입력 방식을 맞춘다.
+  TimeOfDay? _pickedTime;
 
   @override
   void dispose() {
     _textCtrl.dispose();
-    _timeCtrl.dispose();
     super.dispose();
+  }
+
+  /// 고른 시각을 'HH:MM' 문자열로(없으면 빈 문자열 = 미정).
+  String get _timeLabel => _pickedTime == null
+      ? ''
+      : '${_pickedTime!.hour.toString().padLeft(2, '0')}:'
+          '${_pickedTime!.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _pickedTime ?? TimeOfDay.now(),
+    );
+    if (picked != null && mounted) setState(() => _pickedTime = picked);
   }
 
   void _submit() {
     Navigator.pop(
       context,
-      (name: _textCtrl.text.trim(), time: _timeCtrl.text.trim()),
+      (name: _textCtrl.text.trim(), time: _timeLabel),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hasTime = _pickedTime != null;
     return AlertDialog(
       title: const Text('직접 일정 작성'),
       content: Column(
@@ -1052,21 +1070,28 @@ class _ManualScheduleDialogState extends State<_ManualScheduleDialog> {
           TextField(
             controller: _textCtrl,
             autofocus: true,
-            textInputAction: TextInputAction.next,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
             decoration: const InputDecoration(
               labelText: '일정 내용',
               hintText: '예) 공항 출발',
             ),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _timeCtrl,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => _submit(),
-            decoration: const InputDecoration(
-              labelText: '시간(선택)',
-              hintText: '예) 09:00',
-            ),
+          const SizedBox(height: 8),
+          // 시간은 '시간 정하기'와 똑같이 시계 다이얼로 받는다(타이핑 오타 방지·일관성).
+          // 고르면 'HH:MM' 을 보여주고 오른쪽 X 로 다시 '미정'으로 비울 수 있다.
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.schedule, color: scheme.primary),
+            title: Text(hasTime ? _timeLabel : '시간 선택 (선택 사항)'),
+            trailing: hasTime
+                ? IconButton(
+                    tooltip: '시간 지우기',
+                    icon: const Icon(Icons.clear),
+                    onPressed: () => setState(() => _pickedTime = null),
+                  )
+                : const Icon(Icons.chevron_right),
+            onTap: _pickTime,
           ),
         ],
       ),

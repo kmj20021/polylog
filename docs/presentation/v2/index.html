@@ -86,6 +86,17 @@
     .closing .row { display:flex; align-items:center; gap:14px; background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 18px; }
     .closing .row .p { font-size:0.95em; font-weight:900; color:var(--forest-d); white-space:nowrap; }
     .closing .row .t { font-size:0.72em; color:var(--ink); }
+
+    /* ADR 슬라이드: 행이 4개뿐이라 크게 키워 아래 여백 제거 */
+    .reveal .panel table.adr { font-size:0.66em; margin-top:0.6em; }
+    .reveal .panel table.adr th, .reveal .panel table.adr td { padding:15px 16px; }
+    .adr-take { margin-top:22px; background:#eaf6ef; border:1px solid var(--forest); border-radius:12px;
+      padding:16px 22px; font-size:0.78em; font-weight:800; color:var(--forest-d); text-align:center; line-height:1.5; }
+
+    /* WBS 실적 슬라이드: 분해 규모 한 줄 요약 */
+    .wbs-scale { display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; margin:0.2em 0 0.4em;
+      font-size:0.64em; font-weight:700; color:var(--sub); }
+    .wbs-scale b { color:var(--sky-d); }
   </style>
 </head>
 <body>
@@ -123,7 +134,7 @@
     <section>
       <div class="panel">
         <span class="kicker">PROBLEM · 시연</span>
-        <h2>여행자의 4가지 불편 — <span style="color:var(--forest-d)">제목 클릭 시 해소 시연 ▶</span></h2>
+        <h2>여행자의 4가지 불편 사항</h2>
         <div class="grid4">
           <div class="card">
             <div class="num">01</div>
@@ -133,7 +144,7 @@
           </div>
           <div class="card">
             <div class="num">02</div>
-            <div class="ttl playable" data-video="demo-recommend.mp4" data-label="② GPS + AI 리뷰 분석 장소 추천">즉흥 탐색 · 광고 리뷰 <span class="play">▶</span></div>
+            <div class="ttl playable" data-video="demo-recommend.mp4" data-label="② GPS + AI 리뷰 분석 장소 추천">즉흥 탐색 <span class="play">▶</span></div>
             <div class="desc">GPS + Google Places로 찾고, <strong>원어민 리뷰를 AI가 분석</strong>해 추천 이유까지 제시.</div>
             <span class="tag">메인 · 장소 추천</span>
           </div>
@@ -146,7 +157,7 @@
           <div class="card">
             <div class="num">04</div>
             <div class="ttl playable" data-video="demo-receipt.mp4" data-label="④ 영수증 자동 가계부">지출 관리가 번거롭다 <span class="play">▶</span></div>
-            <div class="desc">영수증 한 장으로 <strong>금액·항목 자동 가계부</strong> (Bedrock 비전).</div>
+            <div class="desc">영수증 한 장으로 <strong>금액·항목 자동 가계부</strong>.</div>
             <span class="tag">서브2 · 영수증 기록</span>
           </div>
         </div>
@@ -196,8 +207,8 @@ flowchart TD
       <div class="panel">
         <span class="kicker">ADR · 시행착오</span>
         <h2>결정을 번복한 4가지<span class="key-badge">핵심</span></h2>
-        <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span>
-        <table>
+        <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span><br>
+        <table class="adr">
           <thead><tr><th class="c">#</th><th>처음 계획</th><th class="c">→</th><th>최종 결정</th><th>왜 바꿨나</th><th class="c">ADR</th></tr></thead>
           <tbody>
             <tr><td class="c">1</td><td>Cognito 인증</td><td class="c arrow">→</td><td class="ok">Google OAuth + tokeninfo</td><td>공용계정 IAM에서 Cognito 차단 → 무상태 토큰 검증으로 우회</td><td class="c">007</td></tr>
@@ -207,33 +218,42 @@ flowchart TD
           </tbody>
         </table>
         </div>
-        <div class="diagram-caption">ADR 18건으로 모든 결정의 근거·대안·번복을 기록 — "왜 이 기술을 버렸는가"를 설명 가능</div>
+        
       </div>
     </section>
 
-    <!-- 9. WBS — 구조 + 마일스톤 + 통계 (기존 4페이지 → 1페이지 통합) -->
+    <!-- 9. WBS — 작업 분해 + 날짜별 완료 실적 (1페이지 통합) ★ (확대) -->
     <section>
       <div class="panel">
-        <span class="kicker">WBS · 진행</span>
-        <h2>작업 분해 &amp; 3주 마일스톤</h2>
-        <div class="wtree">1.0 <b>Polylog</b>
- ├─ 1.1 프로젝트 관리            ├─ 1.6 서브2: 영수증 기록
- ├─ 1.2 AWS 기반 환경 구축       ├─ 1.7 서브3: AI 일정 관리
- ├─ 1.3 Flutter 앱 기반 구축     ├─ 1.8 통합 테스트 및 최적화
- ├─ 1.4 메인: AI 장소 추천       └─ 1.9 마무리 및 포트폴리오
- └─ 1.5 서브1: 메뉴판 번역</div>
-        <div class="timeline" style="margin-top:14px;">
-          <div class="tl done"><div class="wk">12주 · 05-25~31</div><div class="th">AWS 환경 + Flutter 기반 관통</div><span class="st">완료</span></div>
-          <div class="tl done"><div class="wk">13주 · 06-01~07</div><div class="th">첫 배포 + 메인·서브 4기능 + 로그인</div><span class="st">완료</span></div>
-          <div class="tl done"><div class="wk">14주 · 06-08~14</div><div class="th">인증 안정화 + 통합테스트 + 문서</div><span class="st">완료</span></div>
-          <div class="tl active"><div class="wk">15주 · 06-15~16</div><div class="th">최종 안정화 + 발표(06-16)</div><span class="st">발표</span></div>
+        <span class="kicker">WBS · 작업 분해 &amp; 실적</span>
+        <h2>작업 분해 → 날짜별 완료 실적<span class="key-badge">핵심</span></h2>
+        <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span>
+        <table>
+          <thead><tr><th class="c">WBS</th><th>기능 / 작업</th><th class="c">완료일</th><th class="c">요일</th></tr></thead>
+          <tbody>
+            <tr><td class="c">1.1</td><td>기획서·요구사항·WBS 확정</td><td class="c">05-25</td><td class="c">월</td></tr>
+            <tr><td class="c">1.2.2~4</td><td>AWS 환경 (S3·DynamoDB·API GW·SAM)</td><td class="c">05-26</td><td class="c">화</td></tr>
+            <tr><td class="c">1.2.1</td><td>IAM 수령·SafeRole 적용·격리규약</td><td class="c">05-27</td><td class="c">수</td></tr>
+            <tr><td class="c">1.3.1</td><td>Flutter 초기화·feature 구조</td><td class="c">05-28</td><td class="c">목</td></tr>
+            <tr><td class="c">1.3.2~3</td><td>공통 UI·4탭 네비·로그인 화면</td><td class="c">05-30</td><td class="c">토</td></tr>
+            <tr><td class="c">1.2.4.2</td><td>fn-health 배포 + API GW 관통</td><td class="c">05-31</td><td class="c">일</td></tr>
+            <tr><td class="c">1.3/1.4</td><td>첫 SAM 배포 + 메인 추천 E2E 관통</td><td class="c">06-01</td><td class="c">월</td></tr>
+            <tr><td class="c">1.4.1</td><td>fn-recommend 연동 <em>(중간발표)</em></td><td class="c">06-02</td><td class="c">화</td></tr>
+            <tr class="hi"><td class="c">1.4</td><td>메인: AI 장소 추천 완성</td><td class="c">06-04</td><td class="c">목</td></tr>
+            <tr class="hi"><td class="c">1.7</td><td>서브3: AI 일정 관리 완성</td><td class="c">06-05</td><td class="c">금</td></tr>
+            <tr class="hi"><td class="c">1.5</td><td>서브1: 메뉴판 번역 완성</td><td class="c">06-06</td><td class="c">토</td></tr>
+            <tr class="hi"><td class="c">1.6</td><td>서브2: 영수증 기록 완성</td><td class="c">06-07</td><td class="c">일</td></tr>
+            <tr><td class="c">1.2.5/1.3.3</td><td>소셜 OAuth 인증 안정화</td><td class="c">06-08</td><td class="c">월</td></tr>
+            <tr><td class="c">1.8.1</td><td>4기능 통합(E2E) 시나리오 테스트</td><td class="c">06-09</td><td class="c">화</td></tr>
+            <tr><td class="c">1.3.2</td><td>UI 안정화 (설정·선호도·배치)</td><td class="c">06-10</td><td class="c">수</td></tr>
+            <tr><td class="c">1.8.4</td><td>성능·비용 최적화 (프롬프트 토큰↓)</td><td class="c">06-12</td><td class="c">금</td></tr>
+            <tr><td class="c">1.9.1</td><td>문서 정리 (README·ADR·setup/deploy/testing)</td><td class="c">06-13</td><td class="c">토</td></tr>
+            <tr><td class="c">1.9.2</td><td>데모·발표 자료·리허설</td><td class="c">06-14</td><td class="c">일</td></tr>
+            <tr class="hi"><td class="c">1.9.2</td><td><strong>최종 발표</strong></td><td class="c">06-16</td><td class="c">화</td></tr>
+          </tbody>
+        </table>
         </div>
-        <div class="stats">
-          <div class="stat"><div class="v">9 / 27 / 95</div><div class="l">작업 패키지 (L1 / L2 / L3)</div></div>
-          <div class="stat"><div class="v">7 종</div><div class="l">Lambda · DynamoDB (각 7종)</div></div>
-          <div class="stat"><div class="v">0 대</div><div class="l">상시 서버 (서버리스)</div></div>
-        </div>
-        <div class="foot">기능별 완료일·크리티컬 패스·리스크 대응은 docs/WBS/wbs.md — GitHub에서 실시간 확인</div>
+        <div class="diagram-caption">메인(06-04) → 서브3·1·2(06-05~07) <strong>4기능 4일 연속 완성</strong> · 이후 인증 안정화·통합테스트·최적화·문서까지 일정대로 마감</div>
       </div>
     </section>
 
@@ -246,12 +266,12 @@ flowchart TD
           <div class="p"><div class="t">개발환경</div>
             <div class="x">Flutter SDK + Android 타깃 · AWS SAM · CloudShell</div></div>
           <div class="p"><div class="t">빌드 → 배포</div>
-            <div class="x">코드 → <strong>SAM 빌드</strong>(패키징) → <strong>CloudShell sam deploy</strong>(클라우드 반영) → Lambda 갱신<br/>Access Key 미발급이라 콘솔 배포 (ADR-010/013)</div></div>
+            <div class="x">코드 → <strong>SAM 빌드</strong>(패키징) → <strong>CloudShell <code>scripts/deploy.sh</code></strong>(=<code>/deploy</code>)로 클라우드 반영 → Lambda 갱신<br/>sam deploy 차단(Access Key·TagResource) → 스크립트 배포 (ADR-010/013)</div></div>
           <div class="p"><div class="t">테스트</div>
             <div class="x">fn-authorizer <strong>단위테스트 8 passed</strong> · 배포 후 실환경 <strong>통합(E2E)</strong> 검증</div>
             <span class="badge">8 passed</span></div>
           <div class="p"><div class="t">문서 · 설치가이드</div>
-            <div class="x">README + setup/deploy/testing + ADR 18건 + AGENTS.md<br/>GitHub 클론만으로 재현 가능</div></div>
+            <div class="x">README + ADR 18건 + <strong>AGENTS.md</strong> (setup·deploy·testing 통합)<br/>GitHub 클론만으로 재현 가능</div></div>
         </div>
         <div class="foot">WBS·진행은 GitHub에서 실시간 확인 (잔디 링크)</div>
       </div>
@@ -259,16 +279,44 @@ flowchart TD
 
     <!-- 11. 활용 · 향후 · 나만의 기법 -->
     <section>
-      <div class="panel center">
+      <div class="panel">
         <span class="kicker">WRAP-UP</span>
         <h2>활용 · 향후 · 나만의 기법</h2>
-        <p style="font-size:0.8em;line-height:1.6;">여행 한 번이 <strong>추천부터 정산까지 한 앱</strong>에 기록됩니다. 향후 실시간 통역(Transcribe)으로 확장.</p>
+        <div class="proc">
+          <div class="p"><div class="t">활용 — 여행 한 번을 한 앱에</div>
+            <div class="x"><strong>여행 전</strong> 장소 추천·AI 일정 → <strong>여행 중</strong> 메뉴 번역·영수증 기록 → <strong>여행 후</strong> 자동 가계부 정산까지, 4기능이 한 흐름으로 이어집니다.</div></div>
+          <div class="p"><div class="t">향후 — v2.0 확장 (plan §10)</div>
+            <div class="x">실시간 통역(<strong>Transcribe</strong>·Polly) · 자동 여행기(<strong>Step Functions</strong>+Bedrock) · 능동형 비서(<strong>Bedrock Agents</strong>) — 서버리스라 기능 단위로 무중단 추가.</div></div>
+        </div>
         <div class="closing">
-          <div class="row"><div class="p">+2</div><div class="t">에이전트·스킬·룰을 <strong>단일 CLAUDE.md</strong>로 통합 운영</div></div>
-          <div class="row"><div class="p">+1</div><div class="t">AI 에이전트 워크플로우 적극 활용</div></div>
-          <div class="row"><div class="p">+1</div><div class="t">LLM 기반 <strong>메모리</strong>로 결정·암묵지 축적</div></div>
+          <div class="row"><div class="p">+2</div><div class="t">룰·에이전트·커맨드를 <strong>단일 AGENTS.md</strong>로 통합 운영 <span style="color:var(--sub);font-weight:600;">(본인만의 기법)</span></div></div>
+          <div class="row"><div class="p">+1</div><div class="t">AI 에이전트 워크플로우(backend-fixer·test-agent) 적극 활용</div></div>
         </div>
         <div class="foot">감사합니다 · github.com/kmj20021/polylog</div>
+      </div>
+    </section>
+
+    <!-- 12. (백업) 기술 채택 근거 — 질의응답 대비 ★ (확대) -->
+    <section>
+      <div class="panel">
+        <span class="kicker">Q&amp;A BACKUP · 부록</span>
+        <h2>기술 채택 근거 <span class="key-badge">질의응답</span></h2>
+        <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span><br>
+        <table>
+          <thead><tr><th>영역</th><th>채택 기술</th><th>왜 채택했나 (핵심)</th><th>기각한 대안</th><th class="c">ADR</th></tr></thead>
+          <tbody>
+            <tr><td>컴퓨팅</td><td class="ok">Lambda + API Gateway</td><td>요청당 과금·무료티어 100만/월, 버스트형 트래픽에 최적, <strong>상시 서버 0대</strong></td><td>EC2(상시비용)·Fargate(과복잡)</td><td class="c">001</td></tr>
+            <tr><td>데이터</td><td class="ok">DynamoDB On-Demand</td><td>Lambda 네이티브·단순 1:N, <strong>trip_id 파티션+시각 SK로 정렬 비용 0</strong></td><td>RDS(상시비용·VPC)·Aurora(과스펙)</td><td class="c">002·014·015</td></tr>
+            <tr><td>AI</td><td class="ok">Bedrock Claude (Haiku)</td><td>IAM 통합·SDK 직접 호출·한국어 우수, 영수증 비전 OCR까지 <strong>1콜</strong></td><td>OpenAI(AWS 외부)·SageMaker(상시비용)</td><td class="c">004·016</td></tr>
+            <tr><td>장소</td><td class="ok">Google Places API</td><td>전 세계 POI 최대 커버리지·리뷰/별점/사진, <strong>월 $200 무료 크레딧</strong></td><td>AWS Location(POI 품질 열세)</td><td class="c">006</td></tr>
+            <tr><td>클라이언트</td><td class="ok">Flutter (Android)</td><td>한 코드베이스·Hot Reload로 <strong>3주 PoC에 가장 효율</strong></td><td>Native(단일 OS)·RN(네이티브 성능)</td><td class="c">003</td></tr>
+            <tr><td>인증</td><td class="ok">Google OAuth + tokeninfo</td><td>Cognito 미제공(환경 제약) → <strong>무상태·의존성 0</strong> 토큰 검증</td><td>Cognito(계정서 차단)·자체 JWT(보안 위험)</td><td class="c">007</td></tr>
+            <tr><td>미디어</td><td class="ok">S3 Presigned URL</td><td>영수증=개인정보라 <strong>서명·만료 URL</strong>이 적합, CDN 과투자 회피</td><td>CloudFront(차단·과투자)·DynamoDB 저장(부적합)</td><td class="c">008</td></tr>
+            <tr><td>리전</td><td class="ok">Bedrock만 us-east-1</td><td>서울에 Bedrock 부재 → 그것만 교차호출(~200ms), 나머지는 서울</td><td>전체 us-east-1(앱↔API 지연↑)</td><td class="c">009</td></tr>
+            <tr><td>배포</td><td class="ok">SAM + CloudShell</td><td>서버리스 특화·AWS 공식, <strong>Access Key 미발급</strong> 제약에 콘솔 배포</td><td>Terraform/CDK(과추상)·로컬 배포(키 없음)</td><td class="c">010·012·013</td></tr>
+          </tbody>
+        </table>
+        </div>
       </div>
     </section>
 

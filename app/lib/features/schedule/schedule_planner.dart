@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/dio_client.dart';
 import '../../core/config/dev_config.dart';
 import '../../core/location/geolocator.dart';
+import '../../shared/maps_link.dart';
 import '../trips/trip.dart';
 import '../trips/trips_screen.dart';
 
@@ -497,6 +498,22 @@ class _ProposedCard extends StatelessWidget {
     required this.onAdd,
   });
 
+  /// 이름 탭 → 구글 지도의 그 장소 페이지(평점·리뷰)를 외부 앱으로 연다.
+  /// 일정 화면(_ScheduleTile)과 같은 [openPlaceInMaps] 헬퍼를 재사용한다.
+  Future<void> _openReviews(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await openPlaceInMaps(
+      name: place.placeName,
+      placeId: place.placeId,
+      address: place.address,
+    );
+    if (!ok) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('리뷰를 열 수 없어요')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -523,9 +540,31 @@ class _ProposedCard extends StatelessWidget {
                 // 방문 시각은 AI 가 임의로 정하지 않는다(미정으로 담기고, 시간은
                 // 사용자가 일정 화면의 '시간' 버튼으로 직접 지정). 그래서 제안 카드엔
                 // 시각을 표시하지 않는다.
-                Text(place.placeName,
-                    style: theme.textTheme.titleSmall
-                        ?.copyWith(fontWeight: FontWeight.bold)),
+                //
+                // 이름을 탭하면 구글 지도의 그 장소 페이지(평점·리뷰 포함)를 연다 —
+                // 담기 전에 리뷰를 보고 결정하라고. place_id 가 있어야 '그 장소'로
+                // 정확히 꽂히므로(없으면 링크 없이 평범한 텍스트), 있을 때만 링크로 만든다.
+                place.placeId.isEmpty
+                    ? Text(place.placeName,
+                        style: theme.textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.bold))
+                    : InkWell(
+                        onTap: () => _openReviews(context),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(place.placeName,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: scheme.primary)),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(Icons.rate_review_outlined,
+                                size: 14, color: scheme.primary),
+                          ],
+                        ),
+                      ),
                 if (place.rating != null)
                   Row(
                     mainAxisSize: MainAxisSize.min,
