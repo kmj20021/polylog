@@ -125,7 +125,7 @@
       <div class="hero">
         <div class="logo">Polylog</div>
         <div class="tagline">AI 여행 동행자</div>
-        <div class="pitch">여행의 잡일은 AI가, 사용자는 여행에만 <br>'길을 잃어도, 이야기는 잃지 않도록'</div>
+        <div class="pitch">'길을 잃어도, 이야기는 잃지 않도록'</div>
       </div>
       <div class="foot">2026-05-25 ~ 06-16 · 3주 PoC · github.com/kmj20021/polylog</div>
     </section>
@@ -264,14 +264,14 @@ flowchart TD
         <h2>개발환경 · 빌드/배포 · 테스트 · 문서</h2>
         <div class="proc">
           <div class="p"><div class="t">개발환경</div>
-            <div class="x">Flutter SDK + Android 타깃 · AWS SAM · CloudShell</div></div>
+            <div class="x"> - Flutter SDK + Android 타깃 <br> - AWS SAM <br> - CloudShell</div></div>
           <div class="p"><div class="t">빌드 → 배포</div>
-            <div class="x">코드 → <strong>SAM 빌드</strong>(패키징) → <strong>CloudShell <code>scripts/deploy.sh</code></strong>(=<code>/deploy</code>)로 클라우드 반영 → Lambda 갱신<br/>sam deploy 차단(Access Key·TagResource) → 스크립트 배포 (ADR-010/013)</div></div>
+            <div class="x">코드 → <strong>SAM 빌드</strong>(패키징) → <strong>CloudShell <code>scripts/deploy.sh</code></strong>(=<code>/deploy</code>)로 클라우드 반영 <br>→ Lambda 갱신<br/>sam deploy 차단(Access Key·TagResource) → 스크립트 배포 (ADR-010/013)</div></div>
           <div class="p"><div class="t">테스트</div>
             <div class="x">fn-authorizer <strong>단위테스트 8 passed</strong> · 배포 후 실환경 <strong>통합(E2E)</strong> 검증</div>
-            <span class="badge">8 passed</span></div>
+            </div>
           <div class="p"><div class="t">문서 · 설치가이드</div>
-            <div class="x">README + ADR 18건 + <strong>AGENTS.md</strong> (setup·deploy·testing 통합)<br/>GitHub 클론만으로 재현 가능</div></div>
+            <div class="x">README + ADR 18건 + <strong>AGENTS.md</strong><br> (setup·deploy·testing 통합)</div></div>
         </div>
         <div class="foot">WBS·진행은 GitHub에서 실시간 확인 (잔디 링크)</div>
       </div>
@@ -286,21 +286,33 @@ flowchart TD
           <div class="p"><div class="t">활용 — 여행 한 번을 한 앱에</div>
             <div class="x"><strong>여행 전</strong> 장소 추천·AI 일정 → <strong>여행 중</strong> 메뉴 번역·영수증 기록 → <strong>여행 후</strong> 자동 가계부 정산까지, 4기능이 한 흐름으로 이어집니다.</div></div>
           <div class="p"><div class="t">향후 — v2.0 확장 (plan §10)</div>
-            <div class="x">실시간 통역(<strong>Transcribe</strong>·Polly) · 자동 여행기(<strong>Step Functions</strong>+Bedrock) · 능동형 비서(<strong>Bedrock Agents</strong>) — 서버리스라 기능 단위로 무중단 추가.</div></div>
+            <div class="x">실시간 통역 기능 추가(<strong>Transcribe</strong>·Polly) · 실제 사용 후 불편사항 정리 및 개선</div></div>
         </div>
+        <br>
         <div class="closing">
           <div class="row"><div class="p">+2</div><div class="t">룰·에이전트·커맨드를 <strong>단일 AGENTS.md</strong>로 통합 운영 <span style="color:var(--sub);font-weight:600;">(본인만의 기법)</span></div></div>
-          <div class="row"><div class="p">+1</div><div class="t">AI 에이전트 워크플로우(backend-fixer·test-agent) 적극 활용</div></div>
+          <div class="row"><div class="p">+1</div><div class="t">AI 에이전트 워크플로우(main·backend.md·frontend.md·tester.md) 적극 활용</div></div>
         </div>
-        <div class="foot">감사합니다 · github.com/kmj20021/polylog</div>
+        <div class="foot">github.com/kmj20021/polylog</div>
       </div>
     </section>
 
-    <!-- 12. (백업) 기술 채택 근거 — 질의응답 대비 ★ (확대) -->
+    <!-- 12. 감사합니다 · 질의응답 -->
+    <section>
+      <div class="hero">
+        <br>
+        <div class="logo">감사합니다</div><br>
+        <div class="tagline">Polylog · AI 여행 동행자</div>
+        <div class="pitch">'길을 잃어도, 이야기는 잃지 않도록'<br><br>Q&A</div>
+      </div>
+      <div class="foot">github.com/kmj20021/polylog</div>
+    </section>
+
+    <!-- 13. (백업) 기술 채택 근거 — 질의응답 대비 ★ (확대) -->
     <section>
       <div class="panel">
         <span class="kicker">Q&amp;A BACKUP · 부록</span>
-        <h2>기술 채택 근거 <span class="key-badge">질의응답</span></h2>
+        <h2>ADR 정리 <span class="key-badge">질의응답</span></h2>
         <div class="zoomable"><span class="zoomhint">🔍 클릭하면 확대</span><br>
         <table>
           <thead><tr><th>영역</th><th>채택 기술</th><th>왜 채택했나 (핵심)</th><th>기각한 대안</th><th class="c">ADR</th></tr></thead>
