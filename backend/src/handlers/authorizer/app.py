@@ -26,6 +26,7 @@ _TOKENINFO = "https://oauth2.googleapis.com/tokeninfo?id_token="
 _VALID_ISS = {"accounts.google.com", "https://accounts.google.com"}
 
 
+# API Gateway 요청의 Google ID 토큰을 검증하고, 유효하면 접근 권한을 부여한다.
 def lambda_handler(event, context):
     token = _bearer(event.get("authorizationToken") or "")
     claims = _verify(token)
@@ -35,6 +36,7 @@ def lambda_handler(event, context):
     return _allow(claims["sub"], event.get("methodArn", "*"), claims)
 
 
+# Bearer 헤더에서 JWT 토큰을 추출한다.
 def _bearer(header):
     """'Bearer xxx' → 'xxx'. 접두사가 없으면 값 그대로, 비어 있으면 ''."""
     h = (header or "").strip()
@@ -44,7 +46,7 @@ def _bearer(header):
         return h[7:].strip()
     return h
 
-
+# Google tokeninfo 엔드포인트를 호출하여 토큰을 검증하고, 클레임을 반환한다.
 def _fetch_tokeninfo(token):
     """tokeninfo 엔드포인트 호출 → 클레임 dict. (테스트에서 monkeypatch 하는 AWS/네트워크 경계.)"""
     url = _TOKENINFO + urllib.parse.quote(token, safe="")
@@ -52,6 +54,7 @@ def _fetch_tokeninfo(token):
         return json.loads(r.read())
 
 
+# 주어진 토큰을 검증하고, 유효하면 클레임을 반환한다.
 def _verify(token):
     """토큰을 검증하고 클레임 dict 를 반환. 실패하면 None(거부)."""
     if not token:
@@ -72,6 +75,7 @@ def _verify(token):
     return data
 
 
+# API Gateway 가 호출한 Lambda Authorizer 의 결과를 정책 문서로 변환.
 def _allow(sub, method_arn, claims):
     """통과 정책 — 같은 API·스테이지 전체에 Allow + context 에 user_id/email 전달."""
     return {
@@ -94,7 +98,7 @@ def _allow(sub, method_arn, claims):
         },
     }
 
-
+# 정책을 같은 API·스테이지의 모든 메서드/경로에 적용(authorizer 결과 캐시 재사용).
 def _scope(method_arn):
     """정책을 같은 API·스테이지의 모든 메서드/경로에 적용(authorizer 결과 캐시 재사용).
 
