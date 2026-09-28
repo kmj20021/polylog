@@ -68,18 +68,16 @@ _CHATS_TABLE = os.environ.get("CHATS_TABLE", "polylog-chats")
 _TRIPS_TABLE = os.environ.get("TRIPS_TABLE", "polylog-trips")
 _USERS_TABLE = os.environ.get("USERS_TABLE", "polylog-users")
 
-# Bedrock 은 us-east-1(모델 액세스 승인 리전)에서 호출.
-_bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+# LLM 은 LiteLLM 게이트웨이(OpenAI 호환 /v1/chat/completions)로 호출한다.
+# 주소·키는 env LLM_BASE_URL / LLM_API_KEY 로 주입(git 금지, deploy.sh 가 주입).
+_LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "").rstrip("/")
+_LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 # 플래너의 두 콜은 성격이 달라 모델을 나눈다(속도·비용 최적화, API GW 29초 천장 회피):
-#   ① 의도 판단(검색?/편집?/대화? 단순 분류) → Haiku(빠름, 이미 모델 액세스 승인됨).
-#   ② 동선 큐레이션(진짜 '계획' 추론)        → Sonnet(품질↑, Opus보다 빠르고 저렴).
-#   ⚠️ Sonnet 은 Bedrock 모델 액세스 승인 필요(미승인 → AccessDenied → 제안 안 나옴).
-#   기본값은 Claude Sonnet 4.6 '인퍼런스 프로파일'(us.) — 최신 모델은 on-demand 직접
-#   호출이 막혀 프로파일 ID 가 필요하다. 다른 모델로 바꾸려면 PLANNER_MODEL_ID env 만 교체.
-_INTENT_MODEL_ID = os.environ.get(
-    "INTENT_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
-_CURATE_MODEL_ID = os.environ.get(
-    "PLANNER_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+#   ① 의도 판단(검색?/편집?/대화? 단순 분류) → bedrock-haiku(빠름).
+#   ② 동선 큐레이션(진짜 '계획' 추론)        → bedrock-sonnet(품질↑).
+#   게이트웨이 별칭만 호출 가능(원본 모델 ID 불가). 바꾸려면 *_MODEL_ID env 만 교체.
+_INTENT_MODEL_ID = os.environ.get("INTENT_MODEL_ID", "bedrock-haiku")
+_CURATE_MODEL_ID = os.environ.get("PLANNER_MODEL_ID", "bedrock-sonnet")
 
 _PLACES_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
 # 플래너는 별점·거리·주소만 쓰므로 reviews 같은 비싼 필드는 뺀다(토큰·요금 절약).
@@ -869,25 +867,21 @@ def _try_claude(prompt, max_tokens, model_id, temperature=0.5):
 
 def _invoke_claude(prompt, max_tokens, model_id, temperature=0.5):
     payload = {
-        "anthropic_version": "bedrock-2023-05-31",
+        "model": model_id,
         "max_tokens": max_tokens,
         "temperature": temperature,
-        "messages": [
-            {"role": "user", "content": [{"type": "text", "text": prompt}]}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
     }
-    result = _bedrock.invoke_model(
-        modelId=model_id,
-        contentType="application/json",
-        accept="application/json",
-        body=json.dumps(payload),
+    req = urllib.request.Request(
+        f"{_LLM_BASE_URL}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {_LLM_API_KEY}",
+                 "Content-Type": "application/json"},
+        method="POST",
     )
-    parsed = json.loads(result["body"].read())
-    return "".join(
-        block.get("text", "")
-        for block in parsed.get("content", [])
-        if block.get("type") == "text"
-    ).strip()
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        parsed = json.loads(resp.read())
+    return (parsed["choices"][0]["message"].get("content") or "").strip()
 
 
 def _safe_json(text):

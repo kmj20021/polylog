@@ -46,9 +46,11 @@ from decimal import Decimal
 import boto3
 from boto3.dynamodb.conditions import Key
 
-# us-east-1 에서만 Claude 3 Haiku 액세스가 승인됨(멀티모달 — 사진을 직접 읽음).
-_bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
-_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
+# LLM 은 LiteLLM 게이트웨이(OpenAI 호환 /v1/chat/completions)로 호출한다(멀티모달 — 사진을 직접 읽음).
+# 주소·키는 env LLM_BASE_URL / LLM_API_KEY 로 주입(git 금지, deploy.sh 가 주입).
+_LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "").rstrip("/")
+_LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+_MODEL_ID = "bedrock-haiku"  # 게이트웨이 별칭(원본 모델 ID 로는 호출 불가)
 
 # 저장은 서울 리전.
 _s3 = boto3.client("s3", region_name="ap-northeast-2")
@@ -479,7 +481,7 @@ def _invoke_claude_vision(prompt, image_bytes, max_tokens=768):
     """Claude Haiku(멀티모달)에 이미지 + 지시문을 보내 텍스트 응답을 받는다."""
     b64 = base64.b64encode(image_bytes).decode("ascii")
     payload = {
-        "anthropic_version": "bedrock-2023-05-31",
+        "model": _MODEL_ID,
         "max_tokens": max_tokens,
         "temperature": 0.2,
         "messages": [
@@ -487,11 +489,9 @@ def _invoke_claude_vision(prompt, image_bytes, max_tokens=768):
                 "role": "user",
                 "content": [
                     {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": _media_type(image_bytes),
-                            "data": b64,
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{_media_type(image_bytes)};base64,{b64}",
                         },
                     },
                     {"type": "text", "text": prompt},
@@ -499,18 +499,16 @@ def _invoke_claude_vision(prompt, image_bytes, max_tokens=768):
             }
         ],
     }
-    result = _bedrock.invoke_model(
-        modelId=_MODEL_ID,
-        contentType="application/json",
-        accept="application/json",
-        body=json.dumps(payload),
+    req = urllib.request.Request(
+        f"{_LLM_BASE_URL}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {_LLM_API_KEY}",
+                 "Content-Type": "application/json"},
+        method="POST",
     )
-    parsed = json.loads(result["body"].read())
-    return "".join(
-        block.get("text", "")
-        for block in parsed.get("content", [])
-        if block.get("type") == "text"
-    ).strip()
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        parsed = json.loads(resp.read())
+    return (parsed["choices"][0]["message"].get("content") or "").strip()
 
 
 def _parse_json_object(text):

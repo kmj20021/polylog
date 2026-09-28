@@ -24,6 +24,13 @@ die()  { echo -e "${RED}✗ $1${NC}"; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+# LLM 게이트웨이(LiteLLM) 주소·키 — LLM 을 쓰는 5개 함수에 필수(없으면 AI 기능 전부 실패).
+#   update-function-configuration --environment 는 env 를 '통째로 교체'하므로
+#   아래 5-x 단계마다 다른 키와 함께 항상 넣는다. 키는 셸 환경(~/.bashrc)에서만 읽는다.
+[ -n "${LLM_BASE_URL:-}" ] && [ -n "${LLM_API_KEY:-}" ] \
+  || die "LLM_BASE_URL / LLM_API_KEY 미설정 → ~/.bashrc 에 export 후 source 하세요."
+LLM_ENV="LLM_BASE_URL=${LLM_BASE_URL%/},LLM_API_KEY=$LLM_API_KEY"
+
 # ────────────────────────────────────────────
 # 1. sam build
 # ────────────────────────────────────────────
@@ -157,19 +164,21 @@ deploy_lambda "polylog-fn-authorizer" \
 #   사용법(CloudShell): export GOOGLE_PLACES_API_KEY=... && bash scripts/deploy.sh
 #   키는 셸 환경에서만 읽으며 스크립트·git 에 하드코딩하지 않는다.
 # ────────────────────────────────────────────
+log "fn-recommend 환경변수 주입 (LLM + GOOGLE_PLACES_API_KEY)"
 if [ -n "${GOOGLE_PLACES_API_KEY:-}" ]; then
-    log "fn-recommend 환경변수 주입 (GOOGLE_PLACES_API_KEY)"
-    aws lambda update-function-configuration \
-      --function-name "polylog-fn-recommend" \
-      --environment "Variables={GOOGLE_PLACES_API_KEY=$GOOGLE_PLACES_API_KEY}" \
-      --region "$REGION" --output text --query 'LastModified' > /dev/null
-    aws lambda wait function-updated \
-      --function-name "polylog-fn-recommend" --region "$REGION"
-    log "  ✅ 키 주입 완료"
+    RECOMMEND_ENV="$LLM_ENV,GOOGLE_PLACES_API_KEY=$GOOGLE_PLACES_API_KEY"
 else
-    warn "GOOGLE_PLACES_API_KEY 미설정 → fn-recommend 환경변수 주입 건너뜀"
+    warn "GOOGLE_PLACES_API_KEY 미설정 → LLM 키만 주입(기존 Places 키는 지워짐)"
     warn "   (이 상태로 /recommend 호출 시 500. export 후 다시 배포하세요.)"
+    RECOMMEND_ENV="$LLM_ENV"
 fi
+aws lambda update-function-configuration \
+  --function-name "polylog-fn-recommend" \
+  --environment "Variables={$RECOMMEND_ENV}" \
+  --region "$REGION" --output text --query 'LastModified' > /dev/null
+aws lambda wait function-updated \
+  --function-name "polylog-fn-recommend" --region "$REGION"
+log "  ✅ 키 주입 완료"
 
 # ────────────────────────────────────────────
 # 5-2. fn-schedule 설정 갱신 (대화형 플래너)
@@ -177,20 +186,18 @@ fi
 #   - GOOGLE_PLACES_API_KEY: 동선 후보 검색용(없으면 검색 없이 대화만 동작).
 #   update-function-code 는 코드만 갱신하므로 timeout/env 는 여기서 따로 맞춘다.
 # ────────────────────────────────────────────
-log "fn-schedule 설정 갱신 (Timeout 30s + Places 키)"
+log "fn-schedule 설정 갱신 (Timeout 30s + LLM + Places 키)"
 if [ -n "${GOOGLE_PLACES_API_KEY:-}" ]; then
-    aws lambda update-function-configuration \
-      --function-name "polylog-fn-schedule" \
-      --timeout 30 \
-      --environment "Variables={GOOGLE_PLACES_API_KEY=$GOOGLE_PLACES_API_KEY}" \
-      --region "$REGION" --output text --query 'LastModified' > /dev/null
+    SCHEDULE_ENV="$LLM_ENV,GOOGLE_PLACES_API_KEY=$GOOGLE_PLACES_API_KEY"
 else
-    warn "GOOGLE_PLACES_API_KEY 미설정 → 키 없이 Timeout 만 상향(대화는 되나 장소 검색 불가)"
-    aws lambda update-function-configuration \
-      --function-name "polylog-fn-schedule" \
-      --timeout 30 \
-      --region "$REGION" --output text --query 'LastModified' > /dev/null
+    warn "GOOGLE_PLACES_API_KEY 미설정 → LLM 키만 주입(대화는 되나 장소 검색 불가)"
+    SCHEDULE_ENV="$LLM_ENV"
 fi
+aws lambda update-function-configuration \
+  --function-name "polylog-fn-schedule" \
+  --timeout 30 \
+  --environment "Variables={$SCHEDULE_ENV}" \
+  --region "$REGION" --output text --query 'LastModified' > /dev/null
 aws lambda wait function-updated \
   --function-name "polylog-fn-schedule" --region "$REGION"
 log "  ✅ fn-schedule 설정 완료"
@@ -201,20 +208,18 @@ log "  ✅ fn-schedule 설정 완료"
 #   - GOOGLE_PLACES_API_KEY: 동선 후보 검색용(없으면 검색 없이 대화만 동작).
 #   update-function-code 는 코드만 갱신하므로 timeout/env 는 여기서 따로 맞춘다.
 # ────────────────────────────────────────────
-log "fn-planner 설정 갱신 (Timeout 30s + Places 키)"
+log "fn-planner 설정 갱신 (Timeout 30s + LLM + Places 키)"
 if [ -n "${GOOGLE_PLACES_API_KEY:-}" ]; then
-    aws lambda update-function-configuration \
-      --function-name "polylog-fn-planner" \
-      --timeout 30 \
-      --environment "Variables={GOOGLE_PLACES_API_KEY=$GOOGLE_PLACES_API_KEY}" \
-      --region "$REGION" --output text --query 'LastModified' > /dev/null
+    PLANNER_ENV="$LLM_ENV,GOOGLE_PLACES_API_KEY=$GOOGLE_PLACES_API_KEY"
 else
-    warn "GOOGLE_PLACES_API_KEY 미설정 → 키 없이 Timeout 만 상향(대화는 되나 장소 검색 불가)"
-    aws lambda update-function-configuration \
-      --function-name "polylog-fn-planner" \
-      --timeout 30 \
-      --region "$REGION" --output text --query 'LastModified' > /dev/null
+    warn "GOOGLE_PLACES_API_KEY 미설정 → LLM 키만 주입(대화는 되나 장소 검색 불가)"
+    PLANNER_ENV="$LLM_ENV"
 fi
+aws lambda update-function-configuration \
+  --function-name "polylog-fn-planner" \
+  --timeout 30 \
+  --environment "Variables={$PLANNER_ENV}" \
+  --region "$REGION" --output text --query 'LastModified' > /dev/null
 aws lambda wait function-updated \
   --function-name "polylog-fn-planner" --region "$REGION"
 log "  ✅ fn-planner 설정 완료"
@@ -226,19 +231,33 @@ log "  ✅ fn-planner 설정 완료"
 #   사용법(CloudShell): export EXCHANGE_RATE_API_KEY=... && bash scripts/deploy.sh
 #   키는 셸 환경에서만 읽으며 스크립트·git 에 하드코딩하지 않는다.
 # ────────────────────────────────────────────
+log "fn-receipt 환경변수 주입 (LLM + EXCHANGE_RATE_API_KEY)"
 if [ -n "${EXCHANGE_RATE_API_KEY:-}" ]; then
-    log "fn-receipt 환경변수 주입 (EXCHANGE_RATE_API_KEY)"
-    aws lambda update-function-configuration \
-      --function-name "polylog-fn-receipt" \
-      --environment "Variables={EXCHANGE_RATE_API_KEY=$EXCHANGE_RATE_API_KEY}" \
-      --region "$REGION" --output text --query 'LastModified' > /dev/null
-    aws lambda wait function-updated \
-      --function-name "polylog-fn-receipt" --region "$REGION"
-    log "  ✅ 키 주입 완료"
+    RECEIPT_ENV="$LLM_ENV,EXCHANGE_RATE_API_KEY=$EXCHANGE_RATE_API_KEY"
 else
-    warn "EXCHANGE_RATE_API_KEY 미설정 → fn-receipt 환경변수 주입 건너뜀"
+    warn "EXCHANGE_RATE_API_KEY 미설정 → LLM 키만 주입"
     warn "   (이 상태로 /receipt 호출 시 OCR·분류는 되나 total_krw=null + note 로 환산만 비활성.)"
+    RECEIPT_ENV="$LLM_ENV"
 fi
+aws lambda update-function-configuration \
+  --function-name "polylog-fn-receipt" \
+  --environment "Variables={$RECEIPT_ENV}" \
+  --region "$REGION" --output text --query 'LastModified' > /dev/null
+aws lambda wait function-updated \
+  --function-name "polylog-fn-receipt" --region "$REGION"
+log "  ✅ 키 주입 완료"
+
+# ────────────────────────────────────────────
+# 5-4b. fn-menu 환경변수 주입 (LLM 키만)
+# ────────────────────────────────────────────
+log "fn-menu 환경변수 주입 (LLM)"
+aws lambda update-function-configuration \
+  --function-name "polylog-fn-menu" \
+  --environment "Variables={$LLM_ENV}" \
+  --region "$REGION" --output text --query 'LastModified' > /dev/null
+aws lambda wait function-updated \
+  --function-name "polylog-fn-menu" --region "$REGION"
+log "  ✅ 키 주입 완료"
 
 # ────────────────────────────────────────────
 # 5-5. fn-authorizer 환경변수 주입 (Google 웹 클라이언트 ID)
