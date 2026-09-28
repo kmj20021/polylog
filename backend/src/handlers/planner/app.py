@@ -123,6 +123,10 @@ def _handle_chat(body):
             and (region or has_gps)):
         searches = ["근처 가볼만한 곳"]
 
+    # 진단용 — 동선 제안이 비었을 때 '검색 스위치 누락 vs 검색 결과 0' 을 구분한다.
+    _log.info("planner: region=%r searches=%r edits=%d gps=%s",
+              region, searches, len(edits), has_gps)
+
     # 2) 기존 일정 편집(삭제/순서변경)을 즉시 반영.
     schedule, edited = _apply_edits(trip_id, schedule, edits)
 
@@ -134,6 +138,7 @@ def _handle_chat(body):
         bias_lat = None if region else float(lat)
         bias_lng = None if region else float(lng)
         candidates = _search_places(searches, language, bias_lat, bias_lng)
+        _log.info("planner: candidates=%d", len(candidates))
         if candidates:
             curated = _curate_plan(message, region, schedule, candidates, language)
             if curated.get("reply"):
@@ -421,7 +426,8 @@ def _search_places(queries, language, lat=None, lng=None):
             }
         try:
             data = _places_post(_PLACES_TEXT_URL, payload, api_key)
-        except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
+        except (urllib.error.HTTPError, urllib.error.URLError, ValueError) as exc:
+            _log.warning("Places 검색 실패 (%s): %s", kw, exc)
             continue
         for raw in data.get("places", []):
             place = _normalize_place(
