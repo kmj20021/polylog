@@ -1,0 +1,15 @@
+# 핸들러가 부르는 모델 별칭(bedrock-haiku / bedrock-sonnet)을 실제 모델에 연결한다.
+# 별칭을 그대로 유지하므로 핸들러 코드는 수정할 필요가 없다.
+# 다른 회사 모델을 쓰고 싶으면 model 값만 바꾸면 된다 (예: openai/gpt-4o-mini).
+model_list:
+  - model_name: bedrock-haiku
+    litellm_params:
+      model: anthropic/claude-haiku-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: bedrock-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

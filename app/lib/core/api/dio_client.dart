@@ -31,8 +31,13 @@ class DioClient {
   static final DioClient _instance = DioClient._internal();
   factory DioClient() => _instance;
 
-  static const String baseUrl =
-      'https://mvlllsq6xj.execute-api.ap-northeast-2.amazonaws.com/dev';
+  // 빌드 시 --dart-define=API_BASE_URL=... 로 Docker 서버 주소를 주입한다.
+  // 미지정이면 기존 AWS API Gateway 주소(졸업 후 삭제됨).
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue:
+        'https://mvlllsq6xj.execute-api.ap-northeast-2.amazonaws.com/dev',
+  );
 
   late final Dio _dio;
 
